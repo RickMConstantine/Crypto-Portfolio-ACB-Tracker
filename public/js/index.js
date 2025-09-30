@@ -22,7 +22,7 @@
         Object.keys(contents).forEach(key => contents[key].style.display = 'none');
         contents[tab.dataset.tab].style.display = '';
         if (tab.dataset.tab === 'tax') {
-          renderTaxACBTable();
+          renderTaxPage();
         }
       });
     });
@@ -146,17 +146,22 @@
       });
     }
 
-    async function renderTaxACBTable() {
-      const tbody = document.querySelector('#tax-acb-table tbody');
-      if (!tbody) return;
-      tbody.innerHTML = '<tr><td colspan="9">Loading...</td></tr>';
+    async function renderTaxPage() {
+      // Populate both the asset-level ACB table and the yearly aggregates table
+      const acbTbody = document.querySelector('#tax-acb-table tbody');
+      const yearlyTbody = document.querySelector('#tax-yearly-aggregates-table tbody');
+      if (!acbTbody || !yearlyTbody) return;
+      acbTbody.innerHTML = '<tr><td colspan="9">Loading...</td></tr>';
+      yearlyTbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
       try {
         const acbData = await fetch('/api/acb').then(r => r.json());
         if (acbData.error) {
-          tbody.innerHTML = `<tr><td colspan="9">Error: ${acbData.error}</td></tr>`;
+          acbTbody.innerHTML = `<tr><td colspan="9">Error: ${acbData.error}</td></tr>`;
+          yearlyTbody.innerHTML = `<tr><td colspan="7">Error: ${acbData.error}</td></tr>`;
           return;
         }
-        tbody.innerHTML = Object.entries(acbData).map(([symbol, data]) => {
+        // Asset-level ACB table
+        acbTbody.innerHTML = Object.entries(acbData).map(([symbol, data]) => {
           const totals = data['TOTALS'] || {};
           // Build yearly breakdown table rows (excluding TOTALS)
           const yearRows = Object.entries(data)
@@ -207,8 +212,46 @@
             </td>
           </tr>`;
         }).join('');
+        // Yearly aggregates table
+        const yearly = {};
+        Object.values(acbData).forEach(assetData => {
+          Object.entries(assetData)
+            .filter(([year]) => year !== 'TOTALS')
+            .forEach(([year, y]) => {
+              if (!yearly[year]) {
+                yearly[year] = {
+                  acb: 0,
+                  totalProceeds: 0,
+                  totalCosts: 0,
+                  totalOutlays: 0,
+                  totalGainLoss: 0,
+                  superficialLosses: 0
+                };
+              }
+              yearly[year].acb += Number(y.acb) || 0;
+              yearly[year].totalProceeds += Number(y.totalProceeds) || 0;
+              yearly[year].totalCosts += Number(y.totalCosts) || 0;
+              yearly[year].totalOutlays += Number(y.totalOutlays) || 0;
+              yearly[year].totalGainLoss += Number(y.totalGainLoss) || 0;
+              yearly[year].superficialLosses += Number(y.superficialLosses) || 0;
+            });
+        });
+        const years = Object.keys(yearly).sort();
+        yearlyTbody.innerHTML = years.map(year => {
+          const y = yearly[year];
+          return `<tr>
+            <td>${year}</td>
+            <td>${y.acb.toFixed(2)}</td>
+            <td>${y.totalProceeds.toFixed(2)}</td>
+            <td>${y.totalCosts.toFixed(2)}</td>
+            <td>${y.totalOutlays.toFixed(2)}</td>
+            <td>${y.totalGainLoss.toFixed(2)}</td>
+            <td>${y.superficialLosses.toFixed(2)}</td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="7">No yearly data</td></tr>';
       } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="9">Error loading ACB data</td></tr>';
+        acbTbody.innerHTML = '<tr><td colspan="9">Error loading ACB data</td></tr>';
+        yearlyTbody.innerHTML = '<tr><td colspan="7">Error loading yearly aggregates</td></tr>';
       }
     }
 
@@ -621,6 +664,6 @@
     renderTransactions();
     renderFiatCurrency();
     populateAddTransactionDropdowns();
-    renderTaxACBTable();
+    renderTaxPage();
     addTransactionFilePicker();
 })();

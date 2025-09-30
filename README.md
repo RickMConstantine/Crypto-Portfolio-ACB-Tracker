@@ -102,7 +102,7 @@ The `examples` directory contains sample SQLite databases for testing and demons
 
 - **acb_example.sqlite** — This database is based on the example from [How to Calculate Adjusted Cost Base (ACB) and Capital Gains](https://www.adjustedcostbase.ca/blog/how-to-calculate-adjusted-cost-base-acb-and-capital-gains/).
 - **superficial_loss_example_1.sqlite** — This database is based on Example #1 from [What is the Superficial Loss Rule?](https://www.adjustedcostbase.ca/blog/what-is-the-superficial-loss-rule/).
-- **superficial_loss_example_2.sqlite** — This database is based on Example #1 from [What is the Superficial Loss Rule?](https://www.adjustedcostbase.ca/blog/what-is-the-superficial-loss-rule/).
+- **superficial_loss_example_2.sqlite** — This database is based on Example #2 from [What is the Superficial Loss Rule?](https://www.adjustedcostbase.ca/blog/what-is-the-superficial-loss-rule/).
 
 You can use these files to experiment with the app and verify ACB and superficial loss calculations.
 
