@@ -1,23 +1,22 @@
+import request from 'supertest';
+import { TransactionType } from '../src/types';
+
 const ASSETS_ROW = { id: 1, name: 'Ethereum', symbol: 'ETH', logo_url: 'https://example.com/eth-logo.png' };
 const ASSETS_ROW_MOCK = jest.fn().mockResolvedValue([ASSETS_ROW]);
 const PRICES_ROW = { date: '2024-06-01', price: 3500, asset_id: 1 };
 const PRICES_ROW_MOCK = jest.fn().mockResolvedValue([PRICES_ROW]);
-const TRANSACTIONS_ROW = { id: 1, date: '2024-06-01', type: 'Buy', send_asset_symbol: 'ETH', send_asset_quantity: 1, receive_asset_symbol: 'BTC', receive_asset_quantity: 2, fee_asset_symbol: 'ETH', fee_asset_quantity: 0.01 };
+const TRANSACTIONS_ROW = { id: 1, date: '2024-06-01', type: 'Buy', send_asset_symbol: 'ETH', send_asset_quantity: 1, receive_asset_symbol: 'ETH', receive_asset_quantity: 2, fee_asset_symbol: 'ETH', fee_asset_quantity: 0.01 };
 const TRANSACTIONS_ROW_MOCK = jest.fn().mockResolvedValue([TRANSACTIONS_ROW]);
 
 jest.mock('../src/db', () => ({
   initDb: jest.fn().mockResolvedValue(Promise.resolve()),
   addAsset: ASSETS_ROW_MOCK,
   getAssets: ASSETS_ROW_MOCK,
-  addBalance: jest.fn(),
-  getBalances: jest.fn().mockResolvedValue([{ id: 1, name: 'Ethereum', symbol: 'ETH', amount: 2.5 }]),
   addPrice: PRICES_ROW_MOCK,
   getPrices: PRICES_ROW_MOCK,
   addTransaction: TRANSACTIONS_ROW_MOCK,
   getTransactions: TRANSACTIONS_ROW_MOCK
 }));
-
-import request from 'supertest';
 
 // Get the Express app instance (not the server listener)
 const app = require('../src/server').default || require('../src/server');
@@ -50,16 +49,6 @@ describe('Express API endpoints (mocked db)', () => {
       b.logo_url === ASSETS_ROW.logo_url)
     ).toBeTruthy();
   });
-
-  // it('POST /api/balances and GET /api/balances', async () => {
-  //   await request(app)
-  //     .post('/api/balance')
-  //     .send({ asset_id: 1, amount: 2.5 })
-  //     .expect(200);
-  //   const res = await request(app).get('/api/balances');
-  //   expect(res.status).toBe(200);
-  //   expect(res.body.some((b: any) => b.amount === 2.5)).toBeTruthy();
-  // });
 
   it('GET /api/prices', async () => {
     const res = await request(app).get('/api/prices');
