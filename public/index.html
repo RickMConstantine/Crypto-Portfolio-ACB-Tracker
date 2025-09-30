@@ -83,20 +83,6 @@
       </tbody>
     </table>
   </div>
-  <!-- <div class="tab-content" id="balances-content" style="display:none;">
-    <h2>Balances</h2>
-    <form id="add-balance-form">
-      <input type="number" name="asset_id" placeholder="Asset ID" required>
-      <input type="number" name="amount" placeholder="Amount" required>
-      <button type="submit">Add Balance</button>
-    </form>
-    <table id="balances-table" border="1">
-      <thead>
-        <tr><th>ID</th><th>Asset Name</th><th>Symbol</th><th>Amount</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div> -->
   <div class="tab-content" id="prices-content" style="display:none;">
     <h2>Prices</h2>
     <form id="add-price-form">
@@ -122,6 +108,13 @@
   </div>
   <div class="tab-content" id="transactions-content" style="display:none;">
     <h2>Transactions</h2>
+    <div id="import-transactions-container" style="margin:1em 0;">
+      <label>Import Transactions (CSV/XLSX):
+        <input type="file" id="import-transactions-file" accept=".csv">
+      </label>
+      <button id="import-transactions-btn">Upload</button>
+      <span id="import-transactions-status" style="margin-left:1em;color:#d9534f;"></span>
+    </div>
     <form id="add-transaction-form">
       <input type="datetime-local" name="date" required>
       <select name="type" id="transaction-type-select" required>
@@ -170,7 +163,6 @@
           <th>Asset Symbol</th>
           <th>Adjusted Cost Base (ACB)</th>
           <th>Total Units</th>
-          <th>Avg Cost Per Unit</th>
           <th>Total Proceeds</th>
           <th>Total Costs</th>
           <th>Total Outlays</th>

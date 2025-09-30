@@ -45,8 +45,8 @@
 
     function renderBlockchainAssets() {
       fetchAndRender('/api/assets/blockchain', 'assets-table', row =>
-        `<td>${row.symbol}</td>
-         <td>${row.name}</td>
+        `<td>${row.name}</td>
+         <td>${row.symbol}</td>
          <td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>`
       ).then(() => {
         const rows = document.querySelectorAll('#assets-table tbody tr');
@@ -149,25 +149,66 @@
     async function renderTaxACBTable() {
       const tbody = document.querySelector('#tax-acb-table tbody');
       if (!tbody) return;
-      tbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9">Loading...</td></tr>';
       try {
         const acbData = await fetch('/api/acb').then(r => r.json());
-        tbody.innerHTML = acbData.map(row =>
-          `<tr>
-            <td>${row.symbol}</td>
-            <td>${row.acb != null ? row.acb : 'N/A'}</td>
-            <td>${row.totalUnits != null ? row.totalUnits : 'N/A'}</td>
-            <td>${row.avgCostPerUnit != null ? row.avgCostPerUnit : 'N/A'}</td>
-            <td>${row.totalProceeds != null ? row.totalProceeds : 'N/A'}</td>
-            <td>${row.totalCosts != null ? row.totalCosts : 'N/A'}</td>
-            <td>${row.totalOutlays != null ? row.totalOutlays : 'N/A'}</td>
-            <td>${row.totalGainLoss != null ? row.totalGainLoss : 'N/A'}</td>
-            <td>${row.superficialLosses != null ? row.superficialLosses : 'N/A'}</td>
-            ${row.error ? `<td>${row.error}</td>` : ''}
-          </tr>`
-        ).join('');
+        if (acbData.error) {
+          tbody.innerHTML = `<tr><td colspan="9">Error: ${acbData.error}</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = Object.entries(acbData).map(([symbol, data]) => {
+          const totals = data['TOTALS'] || {};
+          // Build yearly breakdown table rows (excluding TOTALS)
+          const yearRows = Object.entries(data)
+            .filter(([year]) => year !== 'TOTALS')
+            .map(([year, y]) =>
+              `<tr>
+                <td>${year}</td>
+                <td>${y.acb != null ? y.acb : 'N/A'}</td>
+                <td>${y.totalUnits != null ? y.totalUnits : 'N/A'}</td>
+                <td>${y.totalProceeds != null ? y.totalProceeds : 'N/A'}</td>
+                <td>${y.totalCosts != null ? y.totalCosts : 'N/A'}</td>
+                <td>${y.totalOutlays != null ? y.totalOutlays : 'N/A'}</td>
+                <td>${y.totalGainLoss != null ? y.totalGainLoss : 'N/A'}</td>
+                <td>${y.superficialLosses != null ? y.superficialLosses : 'N/A'}</td>
+              </tr>`
+            ).join('');
+          return `
+          <tr>
+            <td>${symbol}</td>
+            <td>${totals.acb != null ? totals.acb : 'N/A'}</td>
+            <td>${totals.totalUnits != null ? totals.totalUnits : 'N/A'}</td>
+            <td>${totals.totalProceeds != null ? totals.totalProceeds : 'N/A'}</td>
+            <td>${totals.totalCosts != null ? totals.totalCosts : 'N/A'}</td>
+            <td>${totals.totalOutlays != null ? totals.totalOutlays : 'N/A'}</td>
+            <td>${totals.totalGainLoss != null ? totals.totalGainLoss : 'N/A'}</td>
+            <td>${totals.superficialLosses != null ? totals.superficialLosses : 'N/A'}</td>
+            <td>
+              <details>
+                <summary>Yearly breakdown</summary>
+                <table border="1" style="margin-top:0.5em; width:100%;">
+                  <thead>
+                    <tr>
+                      <th>Year</th>
+                      <th>ACB</th>
+                      <th>Total Units</th>
+                      <th>Total Proceeds</th>
+                      <th>Total Costs</th>
+                      <th>Total Outlays</th>
+                      <th>Total Gain/Loss</th>
+                      <th>Superficial Losses</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${yearRows}
+                  </tbody>
+                </table>
+              </details>
+            </td>
+          </tr>`;
+        }).join('');
       } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="7">Error loading ACB data</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9">Error loading ACB data</td></tr>';
       }
     }
 
@@ -536,6 +577,42 @@
     }
 
     //=======================
+    // CSV/Excel Import for Transactions
+    //=======================
+    function addTransactionFilePicker() {
+      document.getElementById('import-transactions-btn').onclick = async function() {
+        const fileInput = document.getElementById('import-transactions-file');
+        const status = document.getElementById('import-transactions-status');
+        status.textContent = '';
+        if (!fileInput.files.length) {
+          status.textContent = 'Please select a file.';
+          return;
+        }
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+          const csvText = e.target.result;
+          try {
+            const resp = await fetch('/api/import-transactions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/csv' },
+              body: csvText
+            });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.error || 'Import failed');
+            status.style.color = 'green';
+            status.textContent = 'Import successful!';
+            renderTransactions();
+          } catch (err) {
+            status.style.color = '#d9534f';
+            status.textContent = err.message || 'Import failed';
+          }
+        };
+        reader.readAsText(file);
+      };
+    }
+
+    //=======================
     // Initial Render
     //=======================
     validateTransactionForm();
@@ -545,4 +622,5 @@
     renderFiatCurrency();
     populateAddTransactionDropdowns();
     renderTaxACBTable();
+    addTransactionFilePicker();
 })();

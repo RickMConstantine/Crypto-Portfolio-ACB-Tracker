@@ -544,7 +544,7 @@ function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset
     const nextTx = txs[j];
     if (nextTx.unix_timestamp > tx.unix_timestamp + THIRTY_DAYS) break;
     if (
-      [TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(nextTx.type as TransactionType) &&
+      [TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(nextTx.type) &&
       nextTx.receive_asset_symbol === asset_symbol &&
       nextTx.receive_asset_quantity &&
       nextTx.unix_timestamp > tx.unix_timestamp &&
@@ -558,7 +558,7 @@ function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset
     const prevTx = txs[j];
     if (prevTx.unix_timestamp < tx.unix_timestamp - THIRTY_DAYS) break;
     if (
-      [TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(prevTx.type as TransactionType) &&
+      [TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(prevTx.type) &&
       prevTx.receive_asset_symbol === asset_symbol &&
       prevTx.receive_asset_quantity &&
       prevTx.unix_timestamp < tx.unix_timestamp &&
@@ -572,18 +572,20 @@ function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset
 
 /**
  * Calculate Adjusted Cost Base (ACB) for a given asset symbol.
- * Returns { acb: number, totalUnits: number, avgCostPerUnit: number }
+ * Returns yearly totals: { [year]: { acb, totalUnits, avgCostPerUnit, ... } }
  */
-export async function calculateACB(asset_symbol: string): Promise<{
-  acb: number,
-  totalUnits: number,
-  avgCostPerUnit: number,
-  totalProceeds: number,
-  totalCosts: number,
-  totalOutlays: number,
-  totalGainLoss: number,
-  superficialLosses: number
-} | Error> {
+export async function calculateACB(asset_symbol: string): Promise<
+  Record<string, {
+    acb: number,
+    totalUnits: number,
+    avgCostPerUnit: number,
+    totalProceeds: number,
+    totalCosts: number,
+    totalOutlays: number,
+    totalGainLoss: number,
+    superficialLosses: number
+  }>
+> {
   try {
     if (!db) throw new Error('DB not initialized');
     if (!asset_symbol) throw new Error('Asset symbol is required');
@@ -605,11 +607,27 @@ export async function calculateACB(asset_symbol: string): Promise<{
     let totalOutlays = 0;
     let totalGainLoss = 0;
     let superficialLosses = 0;
+    
+    // Per-year aggregates
+    const yearlyTotals: Record<string, any> = {};
 
     for (let i = 0; i < txs.length; i++) {
       const tx = txs[i];
+      const year = new Date(tx.unix_timestamp).getFullYear().toString();
+      if (!yearlyTotals[year]) {
+        yearlyTotals[year] = {
+          acb: 0,
+          totalUnits: 0,
+          totalProceeds: 0,
+          totalCosts: 0,
+          totalOutlays: 0,
+          totalGainLoss: 0,
+          superficialLosses: 0
+        };
+      }
+
       // --- Sell/Send/Trade: Disposition ---
-      if ([TransactionType.SELL, TransactionType.SEND, TransactionType.TRADE].includes(tx.type as TransactionType)) {
+      if ([TransactionType.SELL, TransactionType.SEND, TransactionType.TRADE].includes(tx.type)) {
         if (!tx.send_asset_symbol || !tx.send_asset_quantity) {
           throw new Error(`No valid send asset found for transaction ${tx.id} of type ${tx.type}`);
         };
@@ -650,19 +668,28 @@ export async function calculateACB(asset_symbol: string): Promise<{
         totalProceeds += proceeds; // 'Realizing' proceeds
         totalCosts += cost; // 'Realizing' costs
         totalOutlays += fee; // 'Realizing' outlays
+        yearlyTotals[year].acb -= cost;
+        yearlyTotals[year].totalUnits -= tx.send_asset_quantity;
+        yearlyTotals[year].totalProceeds += proceeds; // 'Realizing' proceeds
+        yearlyTotals[year].totalCosts += cost; // 'Realizing' costs
+        yearlyTotals[year].totalOutlays += fee; // 'Realizing' outlays
         // Superficial loss check: if loss, check for repurchase within 30 days before/after
         const gainLoss = proceeds - cost - fee;
         if (gainLoss < 0 && isSuperficialLoss(tx, txs, i, asset_symbol)) {
           superficialLosses += Math.abs(gainLoss);
           acb += Math.abs(gainLoss); // Add back to ACB
           totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
+          yearlyTotals[year].superficialLosses += Math.abs(gainLoss);
+          yearlyTotals[year].acb += Math.abs(gainLoss); // Add back to ACB
+          yearlyTotals[year].totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
         } else {
           totalGainLoss += gainLoss;
+          yearlyTotals[year].totalGainLoss += gainLoss;
         }
       }
 
       // --- Buy/Receive/Trade: Acquisition ---
-      if ([TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(tx.type as TransactionType)) {
+      if ([TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(tx.type)) {
         if (!tx.receive_asset_symbol || !tx.receive_asset_quantity) {
           throw new Error(`No valid receive asset found for transaction ${tx.id} of type ${tx.type}`);
         };
@@ -696,10 +723,12 @@ export async function calculateACB(asset_symbol: string): Promise<{
         // ACB
         acb += cost + fee;
         totalUnits += tx.receive_asset_quantity;
+        yearlyTotals[year].acb += cost + fee;
+        yearlyTotals[year].totalUnits += tx.receive_asset_quantity;
       }
 
       // --- Fees paid in the asset (not part of a send/receive): Disposition ---
-      if (        
+      if (
         tx.fee_asset_symbol === asset_symbol &&
         tx.fee_asset_quantity &&
         tx.send_asset_symbol !== asset_symbol &&
@@ -716,24 +745,40 @@ export async function calculateACB(asset_symbol: string): Promise<{
         totalUnits -= tx.fee_asset_quantity;
         totalProceeds += proceeds; // 'Realizing' proceeds
         totalCosts += cost; // 'Realizing' costs
+        yearlyTotals[year].acb -= cost;
+        yearlyTotals[year].totalUnits -= tx.fee_asset_quantity;
+        yearlyTotals[year].totalProceeds += proceeds; // 'Realizing' proceeds
+        yearlyTotals[year].totalCosts += cost; // 'Realizing' costs
         const gainLoss = proceeds - cost;
         // Superficial loss check: if loss, check for repurchase within 30 days before/after
         if (gainLoss < 0 && isSuperficialLoss(tx, txs, i, asset_symbol)) {
           superficialLosses += Math.abs(gainLoss);
           acb += Math.abs(gainLoss); // Add back to ACB
           totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
+          yearlyTotals[year].superficialLosses += Math.abs(gainLoss); 
+          yearlyTotals[year].acb += Math.abs(gainLoss); // Add back to ACB
+          yearlyTotals[year].totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
         } else {
           totalGainLoss += gainLoss;
+          yearlyTotals[year].totalGainLoss += gainLoss;
         }
       }
-
-      if (totalUnits < 0) totalUnits = 0; // Prevent negative
-      if (acb < 0) acb = 0; // Prevent negative
+      if (yearlyTotals[year].acb < 0) yearlyTotals[year].acb = 0; // Prevent negative due to incomplete data
+      if (yearlyTotals[year].totalUnits < 0) yearlyTotals[year].totalUnits = 0; // Prevent negative due to incomplete data
     }
-
-    const avgCostPerUnit = totalUnits > 0 ? acb / totalUnits : 0;
-    return { acb, totalUnits, avgCostPerUnit, totalCosts, totalProceeds, totalOutlays, totalGainLoss, superficialLosses };
+    // Final totals
+    yearlyTotals['TOTALS'] = {
+      acb,
+      totalUnits,
+      totalProceeds,
+      totalCosts,
+      totalOutlays,
+      totalGainLoss,
+      superficialLosses,
+    };
+    return yearlyTotals;
   } catch (err) {
+    console.error(err);
     throw err;
   }
 }

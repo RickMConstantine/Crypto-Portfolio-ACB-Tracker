@@ -12,11 +12,10 @@ import {
   deleteAsset,
   deleteTransaction,
   calculateACB,
-  getTransactionsByAssetSymbol,
-  // calculateAllACBs,
   updateTransaction
 } from './db';
-import { AssetType, Transaction, TransactionType } from './types';
+import { AssetType, Transaction, TransactionInput, TransactionType } from './types';
+import Papa from 'papaparse';
 
 const app = express();
 const PORT = 3000;
@@ -25,6 +24,7 @@ const DB_PATH = `${__dirname}/db/app_db.sqlite`;
 // Serve static files from 'public'
 app.use(express.static(path.join(__dirname, '../public')));
 app.use(express.json());
+app.use(express.text({ type: 'text/csv', limit: '2mb' }));
 
 // ==============
 // Ping
@@ -80,7 +80,7 @@ app.get('/api/transactions', async (req, res) => {
 app.post('/api/transaction', async (req, res) => {
   // Backend validation for required fields
   try { 
-    validateTransaction(req.body);
+    await validateTransaction(req.body);
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return res.status(400).json({ error: msg });
@@ -91,7 +91,7 @@ app.post('/api/transaction', async (req, res) => {
 
 app.put('/api/transaction/:id', async (req, res) => {
   try { 
-    validateTransaction(req.body);
+    await validateTransaction(req.body);
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return res.status(400).json({ error: msg });
@@ -104,7 +104,58 @@ app.delete('/api/transaction/:id', async (req, res) => {
   res.json(await deleteTransaction(Number(req.params.id)));
 });
 
-function validateTransaction(transaction: Transaction) {
+app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '2mb' }), async (req, res) => {
+  try {
+    const csv = req.body;
+    if (!csv) return res.status(400).json({ error: 'No CSV data received' });
+    const parsed = Papa.parse(csv, { header: true });
+    if (parsed.errors.length) return res.status(400).json({ error: parsed.errors[0].message });
+    const transactions: any[] = parsed.data;
+    // Map and insert transactions
+    let inserted = 0;
+    for (let i = 0; i < transactions.length; i++) {
+      const row = transactions[i];
+      let unix_timestamp = row.unix_timestamp || row.date || row.timestamp;
+      if (unix_timestamp && isNaN(Number(unix_timestamp))) {
+        unix_timestamp = Date.parse(unix_timestamp);
+      } else {
+        unix_timestamp = Number(unix_timestamp);
+      }
+      const tx = {
+        unix_timestamp,
+        type: TransactionType[row.type?.toUpperCase() as keyof typeof TransactionType],
+        send_asset_symbol: row.send_asset_symbol,
+        send_asset_quantity: row.send_asset_quantity ? Number(row.send_asset_quantity) : undefined,
+        receive_asset_symbol: row.receive_asset_symbol,
+        receive_asset_quantity: row.receive_asset_quantity ? Number(row.receive_asset_quantity) : undefined,
+        fee_asset_symbol: row.fee_asset_symbol,
+        fee_asset_quantity: row.fee_asset_quantity ? Number(row.fee_asset_quantity) : undefined,
+        is_income: row.is_income === true || row.is_income === 'true' || row.is_income === 1 || row.is_income === '1',
+        notes: row.notes || ''
+      };
+      try { 
+        await validateTransaction(tx);
+      } catch (error: any) {
+        // skip invalid rows
+        console.log(`Skipping invalid transaction row #${i}: ${JSON.stringify(row)} - ${error instanceof Error ? error.message : 'Unknown error'}`);
+        continue;
+      }
+      try {
+        await addTransaction(tx);
+        inserted++;
+      } catch (e) {
+        // skip invalid rows
+        console.log(`Skipping invalid transaction row #${i}: ${JSON.stringify(row)}`);
+        continue;
+      }
+    }
+    res.json({ success: true, inserted });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+async function validateTransaction(transaction: Transaction | TransactionInput) {
   if (!Object.values(TransactionType).includes(transaction.type)) {
     throw new Error(`Invalid transaction type. Allowed: ${Object.values(TransactionType).join(', ')}`);
   }
@@ -126,37 +177,34 @@ function validateTransaction(transaction: Transaction) {
   if (transaction.fee_asset_symbol && !transaction.fee_asset_quantity || !transaction.fee_asset_symbol && transaction.fee_asset_quantity) {
     throw new Error('Fee asset/symbol and quantity must be provided together.');
   }
+
+  const assets = await getAssets();
+  if (assets instanceof Error) {
+    throw new Error('Failed to fetch assets for validation.');
+  }
+  const assetSymbols = new Set(assets.map((a: any) => a.symbol));
+  if (transaction.send_asset_symbol && !assetSymbols.has(transaction.send_asset_symbol)) {
+    throw new Error(`Send asset symbol '${transaction.send_asset_symbol}' does not exist in assets.`);
+  }
+  if (transaction.receive_asset_symbol && !assetSymbols.has(transaction.receive_asset_symbol)) {
+    throw new Error(`Receive asset symbol '${transaction.receive_asset_symbol}' does not exist in assets.`);
+  }
+  if (transaction.fee_asset_symbol && !assetSymbols.has(transaction.fee_asset_symbol)) {
+    throw new Error(`Fee asset symbol '${transaction.fee_asset_symbol}' does not exist in assets.`);
+  }
 }
 
 // ==============
 // ACB API
 // ==============
 app.get('/api/acb', async (req, res) => {
-  // const result = await calculateAllACBs();
-  // console.log(result);
-  // res.json(result);
   try {
     const assets = await getAssets();
     if (assets instanceof Error) return res.status(500).json({ error: assets.message });
-    const results = [];
+    const results: Record<string, any> = {};
     for (const asset of assets) {
       if (asset.asset_type === AssetType.FIAT) continue;
-      const acbResult = await calculateACB(asset.symbol);
-      if (acbResult instanceof Error) {
-        results.push({ symbol: asset.symbol, acb: null, error: acbResult.message });
-      } else {
-        results.push({ 
-          symbol: asset.symbol,
-          acb: acbResult.acb,
-          totalUnits: acbResult.totalUnits,
-          avgCostPerUnit: acbResult.avgCostPerUnit,
-          totalProceeds: acbResult.totalProceeds,
-          totalCosts: acbResult.totalCosts,
-          totalOutlays: acbResult.totalOutlays,
-          totalGainLoss: acbResult.totalGainLoss,
-          superficialLosses: acbResult.superficialLosses,
-        });
-      }
+      results[asset.symbol] = await calculateACB(asset.symbol) ;
     }
     res.json(results);
   } catch (err: any) {

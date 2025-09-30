@@ -29,8 +29,7 @@ export interface Price {
     fiat_logo_url?: string;
 }
 
-export interface Transaction {
-    id: number;
+export interface TransactionInput {
     unix_timestamp: number;
     type: TransactionType;
     send_asset_symbol?: string;
@@ -41,4 +40,8 @@ export interface Transaction {
     fee_asset_quantity?: number;
     is_income?: boolean;
     notes?: string;
+}
+
+export interface Transaction extends TransactionInput {
+    id: number;
 }

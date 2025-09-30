@@ -1,0 +1,2 @@
+﻿timestamp,type,send_asset_symbol,send_asset_quantity,receive_asset_symbol,receive_asset_quantity,fee_asset_symbol,fee_asset_quantity,notes
+2025-09-30T10:30:00Z,Buy,CAD,100,BTC,1,,,
