@@ -1,0 +1,548 @@
+(function() {
+    'use strict';
+    //=======================
+    // Query Document
+    //=======================
+    const tabs = document.querySelectorAll('.tab');
+    const contents = {
+      assets: document.getElementById('assets-content'),
+    //   balances: document.getElementById('balances-content'),
+      prices: document.getElementById('prices-content'),
+      transactions: document.getElementById('transactions-content'),
+      tax: document.getElementById('tax-content')
+    };
+    
+    //=======================
+    // Tabs
+    //=======================
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        Object.keys(contents).forEach(key => contents[key].style.display = 'none');
+        contents[tab.dataset.tab].style.display = '';
+        if (tab.dataset.tab === 'tax') {
+          renderTaxACBTable();
+        }
+      });
+    });
+
+    //=======================
+    // Render Tabs + Content
+    //=======================
+    async function fetchAndRender(url, tableId, rowFn, requestInit = {}) {
+      const res = await fetch(url, requestInit);
+      const data = await res.json();
+      const tbody = document.querySelector(`#${tableId} tbody`);
+      tbody.innerHTML = '';
+      // Populate table rows
+      data.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = rowFn(row);
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderBlockchainAssets() {
+      fetchAndRender('/api/assets/blockchain', 'assets-table', row =>
+        `<td>${row.symbol}</td>
+         <td>${row.name}</td>
+         <td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>`
+      ).then(() => {
+        const rows = document.querySelectorAll('#assets-table tbody tr');
+        rows.forEach(tr => {
+          const symbol = tr.children[0].textContent;
+          tr.onmouseenter = async function () {
+            tr.style.background = '#ffe6e6';
+            tr.title = 'Click to delete asset';
+            tr.onclick = async function () {
+              if (confirm('Delete this asset?')) {
+                await fetch(`/api/asset/${symbol}`, { method: 'DELETE' });
+                renderBlockchainAssets();
+                renderPrices();
+                populateAssetDropdowns([
+                  document.getElementById('send-asset-select'),
+                  document.getElementById('receive-asset-select'),
+                  document.getElementById('fee-asset-select')
+                ]);
+              }
+            };
+          };
+          tr.onmouseleave = function () {
+            tr.style.background = '';
+            tr.title = '';
+            tr.onclick = null;
+          };
+        });
+      });
+    }
+    
+    function renderPrices() {
+      fetchAndRender('/api/prices', 'prices-table', row =>
+        `<td>${new Date(row.unix_timestamp).toISOString()}</td>
+         <td>${row.price}</td>
+         <td>${row.asset_symbol}</td>
+         <td>${row.fiat_symbol}</td>`
+      );
+    }
+
+    function renderTransactions() {
+      fetchAndRender('/api/transactions', 'transactions-table', row =>
+        `<td>${row.id}</td><td>${new Date(row.unix_timestamp).toISOString()}</td><td>${row.type}</td>
+         <td>${row.send_asset_symbol}</td><td>${row.send_asset_quantity ? row.send_asset_quantity : ''}</td>
+         <td>${row.receive_asset_symbol}</td><td>${row.receive_asset_quantity ? row.receive_asset_quantity : ''}</td>
+         <td>${row.fee_asset_symbol}</td><td>${row.fee_asset_quantity ? row.fee_asset_quantity : ''}</td>
+         <td>${row.is_income ? 'true' : ''}</td><td>${row.notes ? row.notes : ''}</td>`
+      ).then(() => {
+        const rows = document.querySelectorAll('#transactions-table tbody tr');
+        rows.forEach(tr => {
+          const id = tr.children[0].textContent;
+          tr.onclick = async function () {
+            // Fetch transaction details (if not all fields are present)
+            let transaction = {
+              id: id,
+              unix_timestamp: tr.children[1].textContent,
+              type: tr.children[2].textContent,
+              send_asset_symbol: tr.children[3].textContent,
+              send_asset_quantity: tr.children[4].textContent,
+              receive_asset_symbol: tr.children[5].textContent,
+              receive_asset_quantity: tr.children[6].textContent,
+              fee_asset_symbol: tr.children[7].textContent,
+              fee_asset_quantity: tr.children[8].textContent,
+              is_income: tr.children[9].textContent === 'true',
+              notes: tr.children[10].textContent
+            };
+            showEditTransactionModal(transaction);
+          };
+          tr.onmouseenter = function () {
+            tr.style.background = '#e6f7ff';
+            tr.title = 'Click to edit transaction';
+          };
+          tr.onmouseleave = function () {
+            tr.style.background = '';
+            tr.title = '';
+          };
+        });
+      });
+    }
+
+    function renderFiatCurrency() {
+      fetchAndRender('/api/assets/fiat', 'fiat-currency-table', row =>
+        `<td>${row.symbol}</td><td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>`
+      );
+    }
+
+    async function populateAssetDropdowns(selects) {
+      const res = await fetch('/api/assets');
+      const assets = await res.json();
+      selects.forEach(select => {
+        select.innerHTML = '<option value="">Select Asset</option>';
+        assets.forEach(asset => {
+          const opt = document.createElement('option');
+          opt.value = asset.symbol;
+          opt.textContent = `${asset.name} (${asset.symbol})`;
+          select.appendChild(opt);
+        });
+      });
+    }
+
+    async function renderTaxACBTable() {
+      const tbody = document.querySelector('#tax-acb-table tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
+      try {
+        const acbData = await fetch('/api/acb').then(r => r.json());
+        tbody.innerHTML = acbData.map(row =>
+          `<tr>
+            <td>${row.symbol}</td>
+            <td>${row.acb != null ? row.acb : 'N/A'}</td>
+            <td>${row.totalUnits != null ? row.totalUnits : 'N/A'}</td>
+            <td>${row.avgCostPerUnit != null ? row.avgCostPerUnit : 'N/A'}</td>
+            <td>${row.totalProceeds != null ? row.totalProceeds : 'N/A'}</td>
+            <td>${row.totalCosts != null ? row.totalCosts : 'N/A'}</td>
+            <td>${row.totalOutlays != null ? row.totalOutlays : 'N/A'}</td>
+            <td>${row.totalGainLoss != null ? row.totalGainLoss : 'N/A'}</td>
+            <td>${row.superficialLosses != null ? row.superficialLosses : 'N/A'}</td>
+            ${row.error ? `<td>${row.error}</td>` : ''}
+          </tr>`
+        ).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7">Error loading ACB data</td></tr>';
+      }
+    }
+
+    //=======================
+    // Form + OnSubmit
+    //=======================
+    // Add Fiat Currency
+    document.getElementById('fiat-currency-form').onsubmit = async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const symbol = fd.get('symbol');
+      const errorDiv = document.getElementById('fiat-currency-error');
+      errorDiv.textContent = '';
+      try {
+        const resp = await fetch('/api/asset-by-symbol-and-type', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: symbol, asset_type: 'fiat' })
+        });
+        if (!resp.ok) {
+          const msg = await resp.text();
+          throw new Error(msg || 'Failed to set fiat currency');
+        }
+        renderBlockchainAssets();
+        renderFiatCurrency();
+        renderPrices();
+        populateAssetDropdowns([
+          document.getElementById('send-asset-select'),
+          document.getElementById('receive-asset-select'),
+          document.getElementById('fee-asset-select')
+        ]);
+        e.target.reset();
+      } catch (err) {
+        errorDiv.textContent = err.message || 'Failed to set fiat currency';
+      }
+    };
+
+    // Add Blockchain Asset
+    document.getElementById('add-asset-form').onsubmit = async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const errorDiv = document.getElementById('add-asset-error');
+      errorDiv.textContent = '';
+      try {
+        const resp = await fetch('/api/asset-by-symbol-and-type', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: fd.get('symbol'), asset_type: 'blockchain'})
+        });
+        if (!resp.ok) {
+          const msg = await resp.text();
+          throw new Error(msg || 'Failed to add asset');
+        }
+        renderBlockchainAssets();
+        renderPrices(); // In case prices were added with the asset
+        populateAssetDropdowns([
+          document.getElementById('send-asset-select'),
+          document.getElementById('receive-asset-select'),
+          document.getElementById('fee-asset-select')
+        ]);
+        e.target.reset();
+      } catch (err) {
+        errorDiv.textContent = err.message || 'Failed to add asset';
+      }
+    };
+
+    // Add Price
+    document.getElementById('add-price-form').onsubmit = async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      // You may want to select fiat_symbol from the fiat currency table or dropdown
+      // For now, fetch fiat asset from API
+      const fiatRes = await fetch('/api/fiat-currency');
+      const fiat = await fiatRes.json();
+      const fiat_symbol = fiat.symbol || (Array.isArray(fiat) && fiat.length ? fiat[0].symbol : '');
+      await fetch('/api/prices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          unix_timestamp: fd.get('date'),
+          price: Number(fd.get('price')),
+          asset_symbol: fd.get('asset_symbol'),
+          fiat_symbol: fiat_symbol
+        })
+      });
+      renderPrices();
+      e.target.reset();
+    };
+
+    // Add Transaction
+    document.getElementById('add-transaction-form').onsubmit = async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const type = fd.get('type');
+      const send_asset_symbol = fd.get('send_asset_symbol');
+      const send_asset_quantity = fd.get('send_asset_quantity');
+      const receive_asset_symbol = fd.get('receive_asset_symbol');
+      const receive_asset_quantity = fd.get('receive_asset_quantity');
+      const errorDiv = document.getElementById('add-transaction-error');
+      errorDiv.textContent = '';
+
+      // Frontend validation
+      if (type === 'Buy' || type === 'Sell' || type === 'Trade') {
+        if (!send_asset_symbol || !send_asset_quantity || !receive_asset_symbol || !receive_asset_quantity) {
+          errorDiv.textContent = 'Send and Receive asset/symbol and quantity are required for Buy, Sell, or Trade.';
+          return;
+        }
+      } else if (type === 'Send') {
+        if (!send_asset_symbol || !send_asset_quantity) {
+          errorDiv.textContent = 'Send asset/symbol and quantity are required for Send.';
+          return;
+        }
+      } else if (type === 'Receive') {
+        if (!receive_asset_symbol || !receive_asset_quantity) {
+          errorDiv.textContent = 'Receive asset/symbol and quantity are required for Receive.';
+          return;
+        }
+      }
+
+      try {
+        const resp = await fetch('/api/transaction', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            unix_timestamp: Date.parse(fd.get('date')),
+            type: type,
+            send_asset_symbol: send_asset_symbol,
+            send_asset_quantity: Number(send_asset_quantity),
+            receive_asset_symbol: receive_asset_symbol,
+            receive_asset_quantity: Number(receive_asset_quantity),
+            fee_asset_symbol: fd.get('fee_asset_symbol'),
+            fee_asset_quantity: Number(fd.get('fee_asset_quantity')),
+            is_income: fd.get('is_income') === 'on',
+            notes: fd.get('notes')
+          })
+        });
+        if (!resp.ok) {
+          const msg = await resp.text();
+          throw new Error(msg || 'Failed to add transaction');
+        }
+        renderTransactions();
+        e.target.reset();
+      } catch (err) {
+        errorDiv.textContent = err.message || 'Failed to add transaction';
+      }
+    };
+
+    // Validation helper for transaction forms
+    function validateTransactionFields(typeSelect, sendAssetSelect, sendQtyInput, receiveAssetSelect, receiveQtyInput, feeAssetSelect, feeQtyInput, submitBtn, errorDiv) {
+      const type = typeSelect.value;
+      const sendSymbol = sendAssetSelect.value;
+      const sendQty = sendQtyInput.value;
+      const receiveSymbol = receiveAssetSelect.value;
+      const receiveQty = receiveQtyInput.value;
+      const feeAsset = feeAssetSelect.value;
+      const feeQty = feeQtyInput.value;
+      let valid = true;
+      if (errorDiv) errorDiv.textContent = '';
+      if (type === 'Buy' || type === 'Sell' || type === 'Trade') {
+        if (!sendSymbol || !sendQty || !receiveSymbol || !receiveQty) {
+          valid = false;
+        }
+      } else if (type === 'Send') {
+        if (!sendSymbol || !sendQty) {
+          valid = false;
+        }
+      } else if (type === 'Receive') {
+        if (!receiveSymbol || !receiveQty) {
+          valid = false;
+        }
+      } else {
+        valid = false;
+      }
+      if ((feeAsset && !feeQty) || (!feeAsset && feeQty)) {
+        valid = false;
+      }
+      submitBtn.disabled = !valid;
+      return valid;
+    }
+
+    // Add dynamic validation for transaction form
+    const transactionForm = document.getElementById('add-transaction-form');
+    const transactionTypeSelect = document.getElementById('transaction-type-select');
+    const sendAssetSelect = document.getElementById('send-asset-select');
+    const sendAssetQty = document.getElementById('send-asset-quantity');
+    const receiveAssetSelect = document.getElementById('receive-asset-select');
+    const receiveAssetQty = document.getElementById('receive-asset-quantity');
+    const feeAssetSelect = document.getElementById('fee-asset-select');
+    const feeAssetQty = transactionForm.querySelector('input[name="fee_asset_quantity"]');
+    const transactionSubmitBtn = transactionForm.querySelector('button[type="submit"]');
+    const transactionErrorDiv = document.getElementById('add-transaction-error');
+
+    function validateTransactionForm() {
+      validateTransactionFields(
+        transactionTypeSelect,
+        sendAssetSelect,
+        sendAssetQty,
+        receiveAssetSelect,
+        receiveAssetQty,
+        feeAssetSelect,
+        feeAssetQty,
+        transactionSubmitBtn,
+        transactionErrorDiv
+      );
+    }
+
+    // Attach listeners for validation
+    [
+      transactionTypeSelect,
+      sendAssetSelect,
+      receiveAssetSelect,
+      feeAssetSelect
+    ].forEach(el => {
+      el.addEventListener('change', validateTransactionForm);
+    });
+
+    [        
+      sendAssetQty,
+      receiveAssetQty,
+      feeAssetQty
+    ].forEach(el => {
+      el.addEventListener('input', validateTransactionForm);
+    });
+
+    async function populateTransactionTypes(select) {
+      if (!select) return;
+      select.innerHTML = '<option value="">Select Type</option>';
+      try {
+        const types = await fetch('/api/transaction-types').then(r => r.json());
+        types.forEach(type => {
+          const opt = document.createElement('option');
+          opt.value = type;
+          opt.textContent = type;
+          select.appendChild(opt);
+        });
+      } catch (e) {
+        // fallback: do nothing
+      }
+    }
+
+    // Edit Transaction Modal
+    function showEditTransactionModal(transaction) {
+      // Show the static modal
+      const modal = document.getElementById('edit-transaction-modal');
+      modal.classList.add('active');
+      document.getElementById('edit-transaction-title').textContent = `Edit Transaction #${transaction.id}`;
+      // Populate dropdowns for type and assets
+      populateEditTransactionDropdowns().then(() => {
+        // Set field values
+        document.getElementById('edit-date').value = new Date(transaction.unix_timestamp).toISOString().slice(0,16);
+        document.getElementById('edit-type-select').value = transaction.type || '';
+        document.getElementById('edit-send-asset-select').value = transaction.send_asset_symbol || '';
+        document.getElementById('edit-send-asset-quantity').value = transaction.send_asset_quantity || '';
+        document.getElementById('edit-receive-asset-select').value = transaction.receive_asset_symbol || '';
+        document.getElementById('edit-receive-asset-quantity').value = transaction.receive_asset_quantity || '';
+        document.getElementById('edit-fee-asset-select').value = transaction.fee_asset_symbol || '';
+        document.getElementById('edit-fee-asset-quantity').value = transaction.fee_asset_quantity || '';
+        document.getElementById('edit-is-income').checked = !!transaction.is_income;
+        document.getElementById('edit-notes').value = transaction.notes || '';
+        document.getElementById('edit-transaction-error').textContent = '';
+        const form = document.getElementById('edit-transaction-form');
+        const saveBtn = form.querySelector('button[type="submit"]');
+        const typeSelect = document.getElementById('edit-type-select');
+        const sendSelect = document.getElementById('edit-send-asset-select');
+        const sendQty = document.getElementById('edit-send-asset-quantity');
+        const receiveSelect = document.getElementById('edit-receive-asset-select');
+        const receiveQty = document.getElementById('edit-receive-asset-quantity');
+        const feeAssetSelect = document.getElementById('edit-fee-asset-select');
+        const feeAssetQty = form.querySelector('input[name="fee_asset_quantity"]');
+        const errorDiv = document.getElementById('edit-transaction-error');
+        function validateEditTransactionForm() {
+          validateTransactionFields(
+            typeSelect,
+            sendSelect,
+            sendQty,
+            receiveSelect,
+            receiveQty,
+            feeAssetSelect,
+            feeAssetQty,
+            saveBtn,
+            errorDiv
+          );
+        }
+        [typeSelect, sendSelect, receiveSelect, feeAssetSelect].forEach(el => {
+          el.addEventListener('change', validateEditTransactionForm);
+        });
+        [sendQty, receiveQty, feeAssetQty].forEach(el => {
+          el.addEventListener('input', validateEditTransactionForm);
+        });
+        validateEditTransactionForm();
+        form.onsubmit = async function(e) {
+          e.preventDefault();
+          if (saveBtn.disabled) return;
+          const fd = new FormData(form);
+          errorDiv.textContent = '';
+          try {
+            const resp = await fetch(`/api/transaction/${transaction.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                unix_timestamp: Date.parse(fd.get('date')),
+                type: fd.get('type'),
+                send_asset_symbol: fd.get('send_asset_symbol'),
+                send_asset_quantity: Number(fd.get('send_asset_quantity')),
+                receive_asset_symbol: fd.get('receive_asset_symbol'),
+                receive_asset_quantity: Number(fd.get('receive_asset_quantity')),
+                fee_asset_symbol: fd.get('fee_asset_symbol'),
+                fee_asset_quantity: Number(fd.get('fee_asset_quantity')),
+                is_income: fd.get('is_income') === 'on',
+                notes: fd.get('notes')
+              })
+            });
+            if (!resp.ok) {
+              const msg = await resp.text();
+              throw new Error(msg || 'Failed to update transaction');
+            }
+            modal.classList.remove('active');
+            renderTransactions();
+          } catch (err) {
+            errorDiv.textContent = err.message || 'Failed to update transaction';
+          }
+        };
+        // Delete handler
+        document.getElementById('delete-transaction-btn').onclick = async function() {
+          if (confirm('Are you sure you want to delete this transaction?')) {
+            try {
+              await fetch(`/api/transaction/${transaction.id}`, { method: 'DELETE' });
+              modal.classList.remove('active');
+              renderTransactions();
+            } catch (err) {
+              document.getElementById('edit-transaction-error').textContent = err.message || 'Failed to delete transaction';
+            }
+          }
+        };
+        // Cancel handler
+        document.getElementById('close-edit-modal').onclick = function() {
+          modal.classList.remove('active');
+        };
+        // Clicking outside modal-content closes modal
+        modal.onclick = function(e) {
+          if (e.target === modal) modal.classList.remove('active');
+        };
+      });
+    }
+
+    async function populateAddTransactionDropdowns() {
+      // Populate type dropdown
+      await populateTransactionTypes(document.getElementById('transaction-type-select'));
+      // Populate asset dropdowns using new function
+      await populateAssetDropdowns([
+        document.getElementById('send-asset-select'),
+        document.getElementById('receive-asset-select'),
+        document.getElementById('fee-asset-select')
+      ]);
+    }
+
+    async function populateEditTransactionDropdowns() {
+      // Populate type dropdown
+      await populateTransactionTypes(document.getElementById('edit-type-select'));
+      // Populate asset dropdowns using new function
+      await populateAssetDropdowns([
+        document.getElementById('edit-send-asset-select'),
+        document.getElementById('edit-receive-asset-select'),
+        document.getElementById('edit-fee-asset-select')
+      ]);
+    }
+
+    //=======================
+    // Initial Render
+    //=======================
+    validateTransactionForm();
+    renderBlockchainAssets();
+    renderPrices();
+    renderTransactions();
+    renderFiatCurrency();
+    populateAddTransactionDropdowns();
+    renderTaxACBTable();
+})();

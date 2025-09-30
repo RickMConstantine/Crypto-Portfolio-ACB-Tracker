@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Asset Portfolio & ACB Tracker</title>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    .tabs { display: flex; cursor: pointer; margin-bottom: 1em; }
+    .tab { padding: 1em; border: 1px solid #ccc; border-bottom: none; }
+    .tab.active { background: #eee; }
+    .tab-content { border: 1px solid #ccc; padding: 1em; }
+    /* Modal styles */
+    #edit-transaction-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.3);
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    #edit-transaction-modal.active {
+      display: flex;
+    }
+    #edit-transaction-modal .modal-content {
+      background: #fff;
+      padding: 2em;
+      border-radius: 8px;
+      min-width: 350px;
+    }
+    #edit-transaction-modal label { display: block; margin-top: 0.5em; }
+    #edit-transaction-modal button { margin-top: 1em; }
+    #edit-transaction-modal #delete-transaction-btn { margin-left: 1em; color: #fff; background: #d9534f; }
+    #edit-transaction-modal #edit-transaction-error { color: red; margin-top: 0.5em; }
+  </style>
+</head>
+<body>
+  <h1>Asset Portfolio & ACB Tracker</h1>
+  <div class="tabs">
+    <div class="tab active" data-tab="assets">Assets</div>
+    <!-- <div class="tab" data-tab="balances">Balances</div> -->
+    <div class="tab" data-tab="prices">Prices</div>
+    <div class="tab" data-tab="transactions">Transactions</div>
+    <div class="tab" data-tab="tax">Tax</div>
+  </div>
+  <div class="tab-content" id="assets-content">
+    <h2>Fiat Currency</h2>
+    <form id="fiat-currency-form">
+      <input type="text" name="symbol" placeholder="Enter fiat currency (e.g. CAD, USD)" required>
+      <button type="submit">Set Fiat</button>
+    </form>
+    <table id="fiat-currency-table" border="1" style="margin-top:0.5em;">
+      <thead>
+        <tr>
+          <th>Fiat Currency</th>
+          <th>Logo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated in index.js -->
+      </tbody>
+    </table>
+    <div id="fiat-currency-error" style="color:red; margin-top:0.5em;"></div>
+    <h2>Blockchain Assets</h2>
+    <form id="add-asset-form">
+      <input type="text" name="symbol" placeholder="Symbol" required>
+      <button type="submit">Add Asset</button>
+    </form>
+    <div id="add-asset-error" style="color:red; margin-top:0.5em;"></div>
+    <table id="assets-table" border="1">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Symbol</th>
+          <th>Logo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated in index.js -->
+      </tbody>
+    </table>
+  </div>
+  <!-- <div class="tab-content" id="balances-content" style="display:none;">
+    <h2>Balances</h2>
+    <form id="add-balance-form">
+      <input type="number" name="asset_id" placeholder="Asset ID" required>
+      <input type="number" name="amount" placeholder="Amount" required>
+      <button type="submit">Add Balance</button>
+    </form>
+    <table id="balances-table" border="1">
+      <thead>
+        <tr><th>ID</th><th>Asset Name</th><th>Symbol</th><th>Amount</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div> -->
+  <div class="tab-content" id="prices-content" style="display:none;">
+    <h2>Prices</h2>
+    <form id="add-price-form">
+      <input type="date" name="date" required>
+      <input type="number" name="price" placeholder="Price" required>
+      <input type="text" name="asset_symbol" placeholder="Asset Symbol" required>
+      <!-- fiat_symbol will be auto-filled from fiat currency -->
+      <button type="submit">Add Price</button>
+    </form>
+    <table id="prices-table" border="1">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Price</th>
+          <th>Asset Symbol</th>
+          <th>Fiat Symbol</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated in index.js -->
+      </tbody>
+    </table>
+  </div>
+  <div class="tab-content" id="transactions-content" style="display:none;">
+    <h2>Transactions</h2>
+    <form id="add-transaction-form">
+      <input type="datetime-local" name="date" required>
+      <select name="type" id="transaction-type-select" required>
+        <!-- Populated in index.js -->
+      </select>
+      <select name="send_asset_symbol" id="send-asset-select">
+        <option value="">Send Asset</option>
+      </select>
+      <input type="number" name="send_asset_quantity" id="send-asset-quantity" min="0" placeholder="Send Quantity">
+      <select name="receive_asset_symbol" id="receive-asset-select">
+        <option value="">Receive Asset</option>
+      </select>
+      <input type="number" name="receive_asset_quantity" id="receive-asset-quantity" min="0" placeholder="Receive Quantity">
+      <select name="fee_asset_symbol" id="fee-asset-select">
+        <option value="">Fee Asset</option>
+      </select>
+      <input type="number" name="fee_asset_quantity" id="fee-asset-quantity" min="0" placeholder="Fee Quantity">
+      <label>
+        <input type="checkbox" name="is_income">
+        Income
+      </label>
+      <input type="text" name="notes" placeholder="Notes">
+      <button type="submit">Add Transaction</button>
+      <div id="add-transaction-error" style="color:red; margin-top:0.5em;"></div>
+    </form>
+    <table id="transactions-table" border="1">
+      <thead>
+        <tr>
+          <th>ID</th><th>Date</th><th>Type</th>
+          <th>Send Symbol</th><th>Send Qty</th>
+          <th>Receive Symbol</th><th>Receive Qty</th>
+          <th>Fee Symbol</th><th>Fee Qty</th>
+          <th>Income</th><th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated in index.js -->
+      </tbody>
+    </table>
+  </div>
+  <div class="tab-content" id="tax-content" style="display:none;">
+    <h2>Tax Summary</h2>
+    <table id="tax-acb-table" border="1">
+      <thead>
+        <tr>
+          <th>Asset Symbol</th>
+          <th>Adjusted Cost Base (ACB)</th>
+          <th>Total Units</th>
+          <th>Avg Cost Per Unit</th>
+          <th>Total Proceeds</th>
+          <th>Total Costs</th>
+          <th>Total Outlays</th>
+          <th>Total Gain/Loss</th>
+          <th>Superficial Losses</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated in index.js -->
+      </tbody>
+    </table>
+  </div>
+  <div id="edit-transaction-modal">
+    <div class="modal-content">
+      <h3 id="edit-transaction-title">Edit Transaction</h3>
+      <form id="edit-transaction-form">
+        <label>Date: <input type="datetime-local" name="date" id="edit-date" required></label>
+        <label>Type:
+          <select name="type" id="edit-type-select" required></select>
+        </label>
+        <label>Send Asset:
+          <select name="send_asset_symbol" id="edit-send-asset-select"></select>
+        </label>
+        <label>Send Qty: <input type="number" name="send_asset_quantity" id="edit-send-asset-quantity"></label>
+        <label>Receive Asset:
+          <select name="receive_asset_symbol" id="edit-receive-asset-select"></select>
+        </label>
+        <label>Receive Qty: <input type="number" name="receive_asset_quantity" id="edit-receive-asset-quantity"></label>
+        <label>Fee Asset:
+          <select name="fee_asset_symbol" id="edit-fee-asset-select"></select>
+        </label>
+        <label>Fee Qty: <input type="number" name="fee_asset_quantity" id="edit-fee-asset-quantity"></label>
+        <label>Income: <input type="checkbox" name="is_income" id="edit-is-income"></label>
+        <label>Notes: <input type="text" name="notes" id="edit-notes"></label>
+        <button type="submit">Save</button>
+        <button type="button" id="delete-transaction-btn">Delete</button>
+        <button type="button" id="close-edit-modal">Cancel</button>
+        <div id="edit-transaction-error"></div>
+      </form>
+    </div>
+  </div>
+  <script src="js/index.js"></script>
+</body>
+</html>
