@@ -187,24 +187,36 @@
     <div class="modal-content">
       <h3 id="edit-transaction-title">Edit Transaction</h3>
       <form id="edit-transaction-form">
-        <label>Date: <input type="datetime-local" name="date" id="edit-date" required></label>
+        <label>Date:
+          <input type="datetime-local" name="date" id="edit-date" required>
+        </label>
         <label>Type:
           <select name="type" id="edit-type-select" required></select>
         </label>
         <label>Send Asset:
           <select name="send_asset_symbol" id="edit-send-asset-select"></select>
         </label>
-        <label>Send Qty: <input type="number" name="send_asset_quantity" id="edit-send-asset-quantity"></label>
+        <label>Send Qty:
+          <input type="number" step="any" name="send_asset_quantity" id="edit-send-asset-quantity">
+        </label>
         <label>Receive Asset:
           <select name="receive_asset_symbol" id="edit-receive-asset-select"></select>
         </label>
-        <label>Receive Qty: <input type="number" name="receive_asset_quantity" id="edit-receive-asset-quantity"></label>
+        <label>Receive Qty:
+          <input type="number" step="any" name="receive_asset_quantity" id="edit-receive-asset-quantity">
+        </label>
         <label>Fee Asset:
           <select name="fee_asset_symbol" id="edit-fee-asset-select"></select>
         </label>
-        <label>Fee Qty: <input type="number" name="fee_asset_quantity" id="edit-fee-asset-quantity"></label>
-        <label>Income: <input type="checkbox" name="is_income" id="edit-is-income"></label>
-        <label>Notes: <input type="text" name="notes" id="edit-notes"></label>
+        <label>Fee Qty:
+          <input type="number" step="any" name="fee_asset_quantity" id="edit-fee-asset-quantity">
+        </label>
+        <label>Income:
+          <input type="checkbox" name="is_income" id="edit-is-income">
+        </label>
+        <label>Notes:
+          <input type="text" name="notes" id="edit-notes">
+        </label>
         <button type="submit" id="edit-save-btn">Save</button>
         <button type="button" id="delete-transaction-btn">Delete</button>
         <button type="button" id="close-edit-modal">Cancel</button>
