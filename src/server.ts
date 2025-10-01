@@ -74,7 +74,13 @@ app.post('/api/price', async (req, res) => {
 // Transactions
 // ==============
 app.get('/api/transactions', async (req, res) => {
-  res.json(await getTransactions());
+  const { asset, type, date_from, date_to } = req.query;
+  res.json(await getTransactions({
+    asset: asset as string | undefined,
+    type: type as string | undefined,
+    date_from: date_from ? Number(date_from) : undefined,
+    date_to: date_to ? Number(date_to) : undefined
+  }));
 });
 
 app.post('/api/transaction', async (req, res) => {

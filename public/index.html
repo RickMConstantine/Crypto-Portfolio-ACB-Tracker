@@ -108,38 +108,29 @@
   </div>
   <div class="tab-content" id="transactions-content" style="display:none;">
     <h2>Transactions</h2>
-    <div id="import-transactions-container" style="margin:1em 0;">
-      <label>Import Transactions (CSV/XLSX):
-        <input type="file" id="import-transactions-file" accept=".csv">
+    <button id="open-add-import-modal-btn" style="margin-bottom:1em;">Add/Import Transaction</button>
+    <div id="transactions-filters" style="margin-bottom:1em;">
+      <label>Asset:
+        <select id="transactions-filter-asset">
+          <option value="">All</option>
+          <!-- Populated in index.js -->
+        </select>
       </label>
-      <button id="import-transactions-btn">Upload</button>
-      <span id="import-transactions-status" style="margin-left:1em;color:#d9534f;"></span>
+      <label>Type:
+        <select id="transactions-filter-type">
+          <option value="">All</option>
+          <!-- Populated in index.js -->
+        </select>
+      </label>
+      <label>Date From:
+        <input type="date" id="transactions-filter-date-from">
+      </label>
+      <label>Date To:
+        <input type="date" id="transactions-filter-date-to">
+      </label>
+      <button id="transactions-filter-btn">Filter</button>
+      <button id="transactions-filter-reset-btn" type="button">Reset</button>
     </div>
-    <form id="add-transaction-form">
-      <input type="datetime-local" name="date" required>
-      <select name="type" id="transaction-type-select" required>
-        <!-- Populated in index.js -->
-      </select>
-      <select name="send_asset_symbol" id="send-asset-select">
-        <option value="">Send Asset</option>
-      </select>
-      <input type="number" name="send_asset_quantity" id="send-asset-quantity" min="0" placeholder="Send Quantity">
-      <select name="receive_asset_symbol" id="receive-asset-select">
-        <option value="">Receive Asset</option>
-      </select>
-      <input type="number" name="receive_asset_quantity" id="receive-asset-quantity" min="0" placeholder="Receive Quantity">
-      <select name="fee_asset_symbol" id="fee-asset-select">
-        <option value="">Fee Asset</option>
-      </select>
-      <input type="number" name="fee_asset_quantity" id="fee-asset-quantity" min="0" placeholder="Fee Quantity">
-      <label>
-        <input type="checkbox" name="is_income">
-        Income
-      </label>
-      <input type="text" name="notes" placeholder="Notes">
-      <button type="submit">Add Transaction</button>
-      <div id="add-transaction-error" style="color:red; margin-top:0.5em;"></div>
-    </form>
     <table id="transactions-table" border="1">
       <thead>
         <tr>
@@ -214,11 +205,19 @@
         <label>Fee Qty: <input type="number" name="fee_asset_quantity" id="edit-fee-asset-quantity"></label>
         <label>Income: <input type="checkbox" name="is_income" id="edit-is-income"></label>
         <label>Notes: <input type="text" name="notes" id="edit-notes"></label>
-        <button type="submit">Save</button>
+        <button type="submit" id="edit-save-btn">Save</button>
         <button type="button" id="delete-transaction-btn">Delete</button>
         <button type="button" id="close-edit-modal">Cancel</button>
         <div id="edit-transaction-error"></div>
       </form>
+      <div id="import-transactions-container" style="margin:2em 0 0 0; display:none;">
+        <h3>Import Transactions</h3>
+        <label>Import Transactions (CSV):
+          <input type="file" id="import-transactions-file" accept=".csv">
+        </label>
+        <button id="import-transactions-btn">Upload</button>
+        <span id="import-transactions-status" style="margin-left:1em;color:#d9534f;"></span>
+      </div>
     </div>
   </div>
   <script src="js/index.js"></script>

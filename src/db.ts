@@ -399,27 +399,51 @@ export async function addTransaction(
   });
 }
 
-export async function getTransactions(): Promise<Transaction[] | Error> {
+export async function getTransactions(filters?: {
+  asset?: string;
+  type?: string;
+  date_from?: number;
+  date_to?: number;
+}): Promise<Transaction[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
-    db.all(
-      `
-        SELECT
-          t.id, t.unix_timestamp, t.type,
-          t.send_asset_symbol, t.send_asset_quantity,
-          t.receive_asset_symbol, t.receive_asset_quantity,
-          t.fee_asset_symbol, t.fee_asset_quantity,
-          t.is_income, t.notes
-        FROM transactions t
-        LEFT JOIN assets sa ON t.send_asset_symbol = sa.symbol
-        LEFT JOIN assets ra ON t.receive_asset_symbol = ra.symbol
-        LEFT JOIN assets fa ON t.fee_asset_symbol = fa.symbol
-      `,
-      (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows);
+    let sql = `
+      SELECT
+        t.id, t.unix_timestamp, t.type,
+        t.send_asset_symbol, t.send_asset_quantity,
+        t.receive_asset_symbol, t.receive_asset_quantity,
+        t.fee_asset_symbol, t.fee_asset_quantity,
+        t.is_income, t.notes
+      FROM transactions t
+      LEFT JOIN assets sa ON t.send_asset_symbol = sa.symbol
+      LEFT JOIN assets ra ON t.receive_asset_symbol = ra.symbol
+      LEFT JOIN assets fa ON t.fee_asset_symbol = fa.symbol
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+    if (filters) {
+      if (filters.asset) {
+        sql += ' AND (t.send_asset_symbol = ? OR t.receive_asset_symbol = ? OR t.fee_asset_symbol = ?)';
+        params.push(filters.asset, filters.asset, filters.asset);
       }
-    );
+      if (filters.type) {
+        sql += ' AND t.type = ?';
+        params.push(filters.type);
+      }
+      if (filters.date_from) {
+        sql += ' AND t.unix_timestamp >= ?';
+        params.push(filters.date_from);
+      }
+      if (filters.date_to) {
+        sql += ' AND t.unix_timestamp <= ?';
+        params.push(filters.date_to);
+      }
+    }
+    sql += ' ORDER BY t.unix_timestamp ASC';
+    db.all(sql, params, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
   });
 }
 
