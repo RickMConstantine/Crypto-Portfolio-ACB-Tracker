@@ -64,7 +64,13 @@ app.delete('/api/asset/:symbol', async (req, res) => {
 // Prices
 // ==============
 app.get('/api/prices', async (req, res) => {
-  res.json(await getPrices());
+  const { asset_symbol, fiat_symbol, date_from, date_to } = req.query;
+  res.json(await getPrices({
+    asset_symbol: asset_symbol as string | undefined,
+    fiat_symbol: fiat_symbol as string | undefined,
+    date_from: date_from ? Number(date_from) : undefined,
+    date_to: date_to ? Number(date_to) : undefined
+  }));
 });
 
 app.post('/api/price', async (req, res) => {

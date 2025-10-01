@@ -309,21 +309,45 @@ export async function addPrices(prices: Price[]): Promise<Price[] | Error> {
   });
 }
 
-export async function getPrices(): Promise<Price[] | Error> {
+export async function getPrices(filters?: {
+  asset_symbol?: string;
+  fiat_symbol?: string;
+  date_from?: number;
+  date_to?: number;
+}): Promise<Price[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
-    db.all(
-      `
-        SELECT prices.*, a.logo_url AS asset_logo_url, f.logo_url AS fiat_logo_url
-        FROM prices
-        JOIN assets a ON prices.asset_symbol = a.symbol
-        JOIN assets f ON prices.fiat_symbol = f.symbol
-      `,
-      (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows);
+    let sql = `
+      SELECT prices.*, a.logo_url AS asset_logo_url, f.logo_url AS fiat_logo_url
+      FROM prices
+      JOIN assets a ON prices.asset_symbol = a.symbol
+      JOIN assets f ON prices.fiat_symbol = f.symbol
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+    if (filters) {
+      if (filters.asset_symbol) {
+        sql += ' AND prices.asset_symbol = ?';
+        params.push(filters.asset_symbol);
       }
-    );
+      if (filters.fiat_symbol) {
+        sql += ' AND prices.fiat_symbol = ?';
+        params.push(filters.fiat_symbol);
+      }
+      if (filters.date_from) {
+        sql += ' AND prices.unix_timestamp >= ?';
+        params.push(filters.date_from);
+      }
+      if (filters.date_to) {
+        sql += ' AND prices.unix_timestamp <= ?';
+        params.push(filters.date_to);
+      }
+    }
+    sql += ' ORDER BY prices.unix_timestamp ASC';
+    db.all(sql, params, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
   });
 }
 

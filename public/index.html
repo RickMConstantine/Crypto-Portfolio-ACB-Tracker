@@ -113,6 +113,26 @@
   <div class="tab-content" id="prices-content" style="display:none;">
     <h2>Prices</h2>
     <button id="open-edit-price-modal-btn" style="margin-bottom:1em;">Add Price</button>
+    <div id="prices-filters" style="margin-bottom:1em;">
+      <label>Asset:
+        <select id="prices-filter-asset">
+          <option value="">All</option>
+        </select>
+      </label>
+      <label>Fiat:
+        <select id="prices-filter-fiat">
+          <option value="">All</option>
+        </select>
+      </label>
+      <label>Date From:
+        <input type="date" id="prices-filter-date-from">
+      </label>
+      <label>Date To:
+        <input type="date" id="prices-filter-date-to">
+      </label>
+      <button id="prices-filter-btn">Filter</button>
+      <button id="prices-filter-reset-btn" type="button">Reset</button>
+    </div>
     <table id="prices-table" border="1">
       <thead>
         <tr>

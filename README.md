@@ -9,9 +9,10 @@ This application is a full-stack web app for tracking your cryptocurrency asset 
 - Add and manage fiat currencies and blockchain assets.
 - Record transactions with support for buy, sell, trade, send, and receive types.
 - Filter transactions by asset, type, and date range.
+- Filter prices by asset, fiat, and date range.
 - Import transactions from CSV.
 - Track asset balances and prices over time.
-- View and delete assets and transactions.
+- View, edit, and delete assets, transactions, and prices.
 - View ACB and superficial loss calculations per asset and per year.
 - All data is stored locally in a SQLite database.
 
@@ -78,8 +79,8 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 - **Add Blockchain Asset:**  
   Enter the asset symbol (e.g., BTC, ETH) and click "Add Asset". The app will fetch asset info and price history.
 
-- **Add Price:**  
-  [Optional] Manually add price data for an asset (if needed).
+- **Add/Edit/Delete Price:**  
+  Click "Add Price" to open a modal for adding a price. Click any row in the prices table to edit or delete a price. You can filter prices by asset, fiat, and date range using the controls above the prices table.
 
 - **Add/Import Transaction:**  
   Click "Add/Import Transaction" to open a modal where you can add a transaction or import from CSV. You can filter transactions by asset, type, and date range using the controls above the transactions table.
@@ -93,8 +94,10 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 - `DELETE /api/asset/:symbol` — Delete asset
 
 ### Prices
-- `GET /api/prices` — List all prices
-- `POST /api/prices` — Add price
+- `GET /api/prices` — List all prices (supports filtering by `asset_symbol`, `fiat_symbol`, `date_from`, `date_to` as query params)
+- `POST /api/price` — Add price
+- `PUT /api/price` — Update price (by `unix_timestamp`, `asset_symbol`, `fiat_symbol`)
+- `DELETE /api/price` — Delete price (by `unix_timestamp`, `asset_symbol`, `fiat_symbol`)
 
 ### Transactions
 - `GET /api/transactions` — List all transactions (supports filtering by `asset`, `type`, `date_from`, `date_to` as query params)

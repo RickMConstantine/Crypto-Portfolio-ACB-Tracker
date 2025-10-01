@@ -178,8 +178,40 @@
     //=======================
     // Prices Page
     //=======================
-    function renderPrices() {
-      fetchAndRender('/api/prices', 'prices-table', row =>
+    function renderPrices(filters = {}) {
+      // Setup filters
+      const assetSelect = document.getElementById('prices-filter-asset');
+      const fiatSelect = document.getElementById('prices-filter-fiat');
+      const dateFromInput = document.getElementById('prices-filter-date-from');
+      const dateToInput = document.getElementById('prices-filter-date-to');
+      const filterBtn = document.getElementById('prices-filter-btn');
+      const resetBtn = document.getElementById('prices-filter-reset-btn');
+      filterBtn.onclick = function() {
+        const filters = {
+          asset_symbol: assetSelect.value,
+          fiat_symbol: fiatSelect.value,
+          date_from: dateFromInput.value ? Date.parse(dateFromInput.value) : undefined,
+          date_to: dateToInput.value ? Date.parse(dateToInput.value) + 24*60*60*1000 - 1 : undefined
+        };
+        renderPrices(filters);
+      };
+      resetBtn.onclick = function() {
+        assetSelect.value = '';
+        fiatSelect.value = '';
+        dateFromInput.value = '';
+        dateToInput.value = '';
+        renderPrices();
+      };
+      populateAssetDropdowns([document.getElementById('prices-filter-asset')], 'blockchain');
+      populateAssetDropdowns([document.getElementById('prices-filter-fiat')], 'fiat');
+      // Build query string from filters
+      const params = new URLSearchParams();
+      if (filters.asset_symbol) params.append('asset_symbol', filters.asset_symbol);
+      if (filters.fiat_symbol) params.append('fiat_symbol', filters.fiat_symbol);
+      if (filters.date_from) params.append('date_from', filters.date_from);
+      if (filters.date_to) params.append('date_to', filters.date_to);
+      const url = '/api/prices' + (params.toString() ? `?${params.toString()}` : '');
+      fetchAndRender(url, 'prices-table', row =>
         `<td>${new Date(row.unix_timestamp).toISOString().slice(0,10)}</td>
          <td>${row.price}</td>
          <td>${row.asset_symbol}</td>
@@ -319,6 +351,8 @@
         }
       };
     }
+
+    // Add Price button logic
     document.getElementById('open-edit-price-modal-btn').onclick = function() {
       showAddEditPriceModal(null);
     };
@@ -327,6 +361,7 @@
     // Transactions Page
     //=======================
     async function renderTransactions(filters = {}) {
+      // Setup filters
       const assetSelect = document.getElementById('transactions-filter-asset');
       const typeSelect = document.getElementById('transactions-filter-type');
       const dateFromInput = document.getElementById('transactions-filter-date-from');
@@ -349,9 +384,7 @@
         dateToInput.value = '';
         renderTransactions();
       };
-      // Populate asset filter
       populateAssetDropdowns([document.getElementById('transactions-filter-asset')]);
-      // Populate type filter
       populateTransactionTypes(document.getElementById('transactions-filter-type'));
       // Build query string from filters
       const params = new URLSearchParams();
