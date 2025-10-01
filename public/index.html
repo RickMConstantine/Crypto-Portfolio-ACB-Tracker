@@ -35,13 +35,40 @@
     #edit-transaction-modal button { margin-top: 1em; }
     #edit-transaction-modal #delete-transaction-btn { margin-left: 1em; color: #fff; background: #d9534f; }
     #edit-transaction-modal #edit-transaction-error { color: red; margin-top: 0.5em; }
+    #edit-price-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.3);
+      align-items: center;
+      justify-content: center;
+      z-index: 1100;
+    }
+    #edit-price-modal.active {
+      display: flex;
+    }
+    #edit-price-modal .modal-content {
+      background: #fff;
+      padding: 2em;
+      border-radius: 8px;
+      min-width: 350px;
+      max-width: 95vw;
+      max-height: 95vh;
+      overflow: auto;
+      position: relative;
+    }
+    #edit-price-modal label { display: block; margin-top: 0.5em; }
+    #edit-price-modal button { margin-top: 1em; }
+    #edit-price-modal #edit-price-error { color: red; margin-top: 0.5em; }
   </style>
 </head>
 <body>
   <h1>Asset Portfolio & ACB Tracker</h1>
   <div class="tabs">
     <div class="tab active" data-tab="assets">Assets</div>
-    <!-- <div class="tab" data-tab="balances">Balances</div> -->
     <div class="tab" data-tab="prices">Prices</div>
     <div class="tab" data-tab="transactions">Transactions</div>
     <div class="tab" data-tab="tax">Tax</div>
@@ -85,13 +112,7 @@
   </div>
   <div class="tab-content" id="prices-content" style="display:none;">
     <h2>Prices</h2>
-    <form id="add-price-form">
-      <input type="date" name="date" required>
-      <input type="number" name="price" placeholder="Price" required>
-      <input type="text" name="asset_symbol" placeholder="Asset Symbol" required>
-      <!-- fiat_symbol will be auto-filled from fiat currency -->
-      <button type="submit">Add Price</button>
-    </form>
+    <button id="open-edit-price-modal-btn" style="margin-bottom:1em;">Add Price</button>
     <table id="prices-table" border="1">
       <thead>
         <tr>
@@ -105,6 +126,26 @@
         <!-- Populated in index.js -->
       </tbody>
     </table>
+  </div>
+  <div id="edit-price-modal">
+    <div class="modal-content">
+      <h3 id="edit-price-title">Add Price</h3>
+      <form id="edit-price-modal-form">
+        <label>Date:
+          <input type="date" name="date" id="edit-price-date" required>
+        </label>
+        <label>Price:
+          <input type="number" name="price" id="edit-price-value" placeholder="Price" required step="any">
+        </label>
+        <label>Asset Symbol:
+          <select name="asset_symbol" id="edit-price-asset-symbol" required></select>
+        </label>
+        <button type="submit">Save</button>
+        <button type="button" id="delete-price-btn">Delete</button>
+        <button type="button" id="cancel-edit-price-modal">Cancel</button>
+        <div id="edit-price-error"></div>
+      </form>
+    </div>
   </div>
   <div class="tab-content" id="transactions-content" style="display:none;">
     <h2>Transactions</h2>

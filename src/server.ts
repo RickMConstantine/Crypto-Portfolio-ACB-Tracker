@@ -12,7 +12,9 @@ import {
   deleteAsset,
   deleteTransaction,
   calculateACB,
-  updateTransaction
+  updateTransaction,
+  updatePrice,
+  deletePrice
 } from './db';
 import { AssetType, Transaction, TransactionInput, TransactionType } from './types';
 import Papa from 'papaparse';
@@ -68,6 +70,16 @@ app.get('/api/prices', async (req, res) => {
 app.post('/api/price', async (req, res) => {
   const { unix_timestamp, price, asset_symbol, fiat_symbol } = req.body;
   res.json(await addPrice({unix_timestamp, price, asset_symbol, fiat_symbol}));
+});
+
+app.put('/api/price', async (req, res) => {
+  const { unix_timestamp, asset_symbol, fiat_symbol, price } = req.body;
+  res.json(await updatePrice({ unix_timestamp, asset_symbol, fiat_symbol, price }));
+});
+
+app.delete('/api/price', async (req, res) => {
+  const { unix_timestamp, asset_symbol, fiat_symbol } = req.body;
+  res.json(await deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }));
 });
 
 // ==============

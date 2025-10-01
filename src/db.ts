@@ -327,6 +327,36 @@ export async function getPrices(): Promise<Price[] | Error> {
   });
 }
 
+export async function updatePrice({ unix_timestamp, asset_symbol, fiat_symbol, price }: Price): Promise<Price[] | Error> {
+  return new Promise<any[] | Error>((resolve, reject) => {
+    if (!db) return reject(new Error('DB not initialized'));
+    db.all(
+      'UPDATE prices SET price = ? WHERE unix_timestamp = ? AND asset_symbol = ? AND fiat_symbol = ? RETURNING *',
+      [price, unix_timestamp, asset_symbol, fiat_symbol],
+      (err, rows) => {
+        if (err) return reject(err);
+        if (!rows.length) return reject(new Error('Failed to update price'));
+        resolve(rows);
+      }
+    );
+  });
+}
+
+export async function deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }: Omit<Price, 'price'>): Promise<Price[] | Error> {
+  return new Promise<any[] | Error>((resolve, reject) => {
+    if (!db) return reject(new Error('DB not initialized'));
+    db.all(
+      'DELETE FROM prices WHERE unix_timestamp = ? AND asset_symbol = ? AND fiat_symbol = ? RETURNING *',
+      [unix_timestamp, asset_symbol, fiat_symbol],
+      (err, rows) => {
+        if (err) return reject(err);
+        if (!rows.length) return reject(new Error('Failed to delete price'));
+        resolve(rows);
+      }
+    );
+  });
+}
+
 // Helper to get the latest price for an asset in fiat before or at a given timestamp
 async function getLatestPrice(asset_symbol: string, fiat_symbol: string, unix_timestamp: number): Promise<Price | Error> {
   return new Promise<Price>((resolve, reject) => {

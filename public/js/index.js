@@ -161,8 +161,8 @@
       }
     };
 
-    async function populateAssetDropdowns(selects) {
-      const res = await fetch('/api/assets');
+    async function populateAssetDropdowns(selects, assetType) {
+      const res = await fetch(`/api/assets${assetType ? `/${assetType}` : ''}`);
       const assets = await res.json();
       selects.forEach(select => {
         select.innerHTML = '<option value="">Select Asset</option>';
@@ -180,35 +180,147 @@
     //=======================
     function renderPrices() {
       fetchAndRender('/api/prices', 'prices-table', row =>
-        `<td>${new Date(row.unix_timestamp).toISOString()}</td>
+        `<td>${new Date(row.unix_timestamp).toISOString().slice(0,10)}</td>
          <td>${row.price}</td>
          <td>${row.asset_symbol}</td>
          <td>${row.fiat_symbol}</td>`
-      );
+      ).then(() => {
+        // Add edit-on-click logic to each row
+        const rows = document.querySelectorAll('#prices-table tbody tr');
+        rows.forEach(tr => {
+          tr.onclick = function () {
+            // Extract price row data
+            const price = {
+              unix_timestamp: new Date(tr.children[0].textContent).getTime(),
+              price: tr.children[1].textContent,
+              asset_symbol: tr.children[2].textContent,
+              fiat_symbol: tr.children[3].textContent
+            };
+            showAddEditPriceModal(price);
+          };
+          tr.onmouseenter = function () {
+            tr.style.background = '#e6f7ff';
+            tr.title = 'Click to edit price';
+          };
+          tr.onmouseleave = function () {
+            tr.style.background = '';
+            tr.title = '';
+          };
+        });
+      });
     }
     renderPrices();
 
-    // Add Price
-    document.getElementById('add-price-form').onsubmit = async e => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      // You may want to select fiat_symbol from the fiat currency table or dropdown
-      // For now, fetch fiat asset from API
-      const fiatRes = await fetch('/api/fiat-currency');
-      const fiat = await fiatRes.json();
-      const fiat_symbol = fiat.symbol || (Array.isArray(fiat) && fiat.length ? fiat[0].symbol : '');
-      await fetch('/api/prices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          unix_timestamp: fd.get('date'),
-          price: Number(fd.get('price')),
-          asset_symbol: fd.get('asset_symbol'),
-          fiat_symbol: fiat_symbol
-        })
+    // Add/Edit Price Modal logic
+    function showAddEditPriceModal(price) {
+      const modal = document.getElementById('edit-price-modal');
+      const form = document.getElementById('edit-price-modal-form');
+      const title = document.getElementById('edit-price-title');
+      const errorDiv = document.getElementById('edit-price-error');
+      const assetSelect = document.getElementById('edit-price-asset-symbol');
+      const dateInput = document.getElementById('edit-price-date');
+      const priceInput = document.getElementById('edit-price-value');
+      const cancelBtn = document.getElementById('cancel-edit-price-modal');
+      const deleteBtn = document.getElementById('delete-price-btn');
+      // Populate asset dropdown
+      populateAssetDropdowns([assetSelect], 'blockchain').then(() => {
+        // Set form values
+        form.reset();
+        if (price) {
+          title.textContent = 'Edit Price';
+          dateInput.value = new Date(price.unix_timestamp).toISOString().slice(0,10);
+          priceInput.value = price.price;
+          assetSelect.value = price.asset_symbol;
+          assetSelect.disabled = true;
+          dateInput.disabled = true;
+          deleteBtn.style.display = '';
+        } else {
+          title.textContent = 'Add Price';
+          assetSelect.disabled = false;
+          dateInput.disabled = false;
+          deleteBtn.style.display = 'none';
+        }
+        errorDiv.textContent = '';
+        modal.classList.add('active');
       });
-      renderPrices();
-      e.target.reset();
+      cancelBtn.onclick = function() {
+        modal.classList.remove('active');
+      };
+      modal.onclick = function(e) {
+        if (e.target === modal) modal.classList.remove('active');
+      };
+      form.onsubmit = async function(e) {
+        e.preventDefault();
+        errorDiv.textContent = '';
+        const fd = new FormData(form);
+        // Get fiat symbol from API
+        const fiatRes = await fetch('/api/assets/fiat');
+        const fiat = await fiatRes.json();
+        const fiat_symbol = fiat[0]?.symbol || '';
+        try {
+          let resp;
+          if (price) {
+            // Edit mode: update price (delete old, insert new)
+            resp = await fetch('/api/price', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                unix_timestamp: price.unix_timestamp,
+                price: Number(fd.get('price')),
+                asset_symbol: price.asset_symbol,
+                fiat_symbol: price.fiat_symbol
+              })
+            });
+          } else {
+            // Add mode
+            resp = await fetch('/api/price', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                unix_timestamp: Date.parse(fd.get('date')),
+                price: Number(fd.get('price')),
+                asset_symbol: fd.get('asset_symbol'),
+                fiat_symbol: fiat_symbol
+              })
+            });
+          }
+          if (!resp.ok) {
+            const msg = await resp.text();
+            throw new Error(msg || 'Failed to save price');
+          }
+          modal.classList.remove('active');
+          renderPrices();
+        } catch (err) {
+          errorDiv.textContent = err.message || 'Failed to save price';
+        }
+      };
+      deleteBtn.onclick = async function() {
+        if (!price) return;
+        if (!confirm('Are you sure you want to delete this price?')) return;
+        errorDiv.textContent = '';
+        try {
+          const resp = await fetch('/api/price', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              unix_timestamp: price.unix_timestamp,
+              asset_symbol: price.asset_symbol,
+              fiat_symbol: price.fiat_symbol
+            })
+          });
+          if (!resp.ok) {
+            const msg = await resp.text();
+            throw new Error(msg || 'Failed to delete price');
+          }
+          modal.classList.remove('active');
+          renderPrices();
+        } catch (err) {
+          errorDiv.textContent = err.message || 'Failed to delete price';
+        }
+      };
+    }
+    document.getElementById('open-edit-price-modal-btn').onclick = function() {
+      showAddEditPriceModal(null);
     };
 
     //=======================
