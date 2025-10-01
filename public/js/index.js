@@ -538,25 +538,25 @@
             .map(([year, y]) =>
               `<tr>
                 <td>${year}</td>
-                <td>${y.acb != null ? y.acb : 'N/A'}</td>
+                <td>${y.acb != null ? y.acb.toFixed(2) : 'N/A'}</td>
                 <td>${y.totalUnits != null ? y.totalUnits : 'N/A'}</td>
-                <td>${y.totalProceeds != null ? y.totalProceeds : 'N/A'}</td>
-                <td>${y.totalCosts != null ? y.totalCosts : 'N/A'}</td>
-                <td>${y.totalOutlays != null ? y.totalOutlays : 'N/A'}</td>
-                <td>${y.totalGainLoss != null ? y.totalGainLoss : 'N/A'}</td>
-                <td>${y.superficialLosses != null ? y.superficialLosses : 'N/A'}</td>
+                <td>${y.totalProceeds != null ? y.totalProceeds.toFixed(2) : 'N/A'}</td>
+                <td>${y.totalCosts != null ? y.totalCosts.toFixed(2) : 'N/A'}</td>
+                <td>${y.totalOutlays != null ? y.totalOutlays.toFixed(2) : 'N/A'}</td>
+                <td>${y.totalGainLoss != null ? y.totalGainLoss.toFixed(2) : 'N/A'}</td>
+                <td>${y.superficialLosses != null ? y.superficialLosses.toFixed(2) : 'N/A'}</td>
               </tr>`
             ).join('');
           return `
           <tr>
             <td>${symbol}</td>
-            <td>${totals.acb != null ? totals.acb : 'N/A'}</td>
+            <td>${totals.acb != null ? totals.acb.toFixed(2) : 'N/A'}</td>
             <td>${totals.totalUnits != null ? totals.totalUnits : 'N/A'}</td>
-            <td>${totals.totalProceeds != null ? totals.totalProceeds : 'N/A'}</td>
-            <td>${totals.totalCosts != null ? totals.totalCosts : 'N/A'}</td>
-            <td>${totals.totalOutlays != null ? totals.totalOutlays : 'N/A'}</td>
-            <td>${totals.totalGainLoss != null ? totals.totalGainLoss : 'N/A'}</td>
-            <td>${totals.superficialLosses != null ? totals.superficialLosses : 'N/A'}</td>
+            <td>${totals.totalProceeds != null ? totals.totalProceeds.toFixed(2) : 'N/A'}</td>
+            <td>${totals.totalCosts != null ? totals.totalCosts.toFixed(2) : 'N/A'}</td>
+            <td>${totals.totalOutlays != null ? totals.totalOutlays.toFixed(2) : 'N/A'}</td>
+            <td>${totals.totalGainLoss != null ? totals.totalGainLoss.toFixed(2) : 'N/A'}</td>
+            <td>${totals.superficialLosses != null ? totals.superficialLosses.toFixed(2) : 'N/A'}</td>
             <td>
               <details>
                 <summary>Yearly breakdown</summary>

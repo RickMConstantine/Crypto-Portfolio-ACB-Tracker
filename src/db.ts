@@ -727,7 +727,7 @@ export async function calculateACB(asset_symbol: string): Promise<
         let cost = 0;
         if (tx.send_asset_symbol === fiat_symbol && tx.send_asset_quantity) {
           cost = tx.send_asset_quantity;
-        } else if (tx.receive_asset_symbol && tx.receive_asset_quantity) {
+        } else if (tx.receive_asset_symbol && tx.receive_asset_quantity && !(tx.type === TransactionType.RECEIVE && !tx.is_income)) {
           cost = tx.receive_asset_quantity * buyPrice.price;
         }
         // Fees
@@ -789,6 +789,9 @@ export async function calculateACB(asset_symbol: string): Promise<
       }
       if (yearlyTotals[year].acb < 0) yearlyTotals[year].acb = 0; // Prevent negative due to incomplete data
       if (yearlyTotals[year].totalUnits < 0) yearlyTotals[year].totalUnits = 0; // Prevent negative due to incomplete data
+      if (asset_symbol === 'XLM') {
+        console.log(acb);
+      }
     }
     // Final totals
     yearlyTotals['TOTALS'] = {
