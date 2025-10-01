@@ -8,8 +8,11 @@ This application is a full-stack web app for tracking your cryptocurrency asset 
 
 - Add and manage fiat currencies and blockchain assets.
 - Record transactions with support for buy, sell, trade, send, and receive types.
+- Filter transactions by asset, type, and date range.
+- Import transactions from CSV.
 - Track asset balances and prices over time.
 - View and delete assets and transactions.
+- View ACB and superficial loss calculations per asset and per year.
 - All data is stored locally in a SQLite database.
 
 ## Tech Stack
@@ -76,25 +79,33 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
   Enter the asset symbol (e.g., BTC, ETH) and click "Add Asset". The app will fetch asset info and price history.
 
 - **Add Price:**  
-  Manually add price data for an asset (if needed).
+  [Optional] Manually add price data for an asset (if needed).
 
-- **Add Transaction:**  
-  Fill out the transaction form, selecting the type (Buy, Sell, Trade, Send, Receive). Required fields will change based on the type.
-
-- **Delete Assets/Transactions:**  
-  Hover over a row in the assets or transactions table and click to delete.
+- **Add/Import Transaction:**  
+  Click "Add/Import Transaction" to open a modal where you can add a transaction or import from CSV. You can filter transactions by asset, type, and date range using the controls above the transactions table.
 
 ## API Endpoints
 
+### Assets
 - `GET /api/assets` — List all assets
 - `GET /api/assets/:type` — List assets by type (`blockchain` or `fiat`)
 - `POST /api/asset-by-symbol-and-type` — Add asset by symbol and type
 - `DELETE /api/asset/:symbol` — Delete asset
+
+### Prices
 - `GET /api/prices` — List all prices
 - `POST /api/prices` — Add price
-- `GET /api/transactions` — List all transactions
+
+### Transactions
+- `GET /api/transactions` — List all transactions (supports filtering by `asset`, `type`, `date_from`, `date_to` as query params)
 - `POST /api/transaction` — Add transaction
+- `PUT /api/transaction/:id` — Update transaction
 - `DELETE /api/transaction/:id` — Delete transaction
+- `POST /api/import-transactions` — Import transactions from CSV
+
+### Tax + ACB
+- `GET /api/acb` — Get proceeds, costs, outlays, ACB, and superficial loss for all assets (yearly and total breakdown)
+- `GET /api/transaction-types` — List all transaction types
 
 ## Examples Directory
 
