@@ -123,10 +123,11 @@ export async function addAssetBySymbol(symbol: string, assetType: AssetType): Pr
     }
 
     const asset = assetJson.Data.LIST[0];
-    if (assetType.toLocaleUpperCase() !== asset.ASSET_TYPE) {
-      throw new Error(`Asset type mismatch: ${assetType.toLocaleUpperCase()} !== ${asset.ASSET_TYPE}`);
+    if ((assetType === AssetType.FIAT && asset.ASSET_TYPE !== AssetType.FIAT.toUpperCase()) ||
+        (assetType === AssetType.BLOCKCHAIN && asset.ASSET_TYPE !== AssetType.BLOCKCHAIN.toUpperCase() && asset.ASSET_TYPE !== 'TOKEN')) {
+      throw new Error(`Asset type mismatch: ${assetType.toUpperCase()} !== ${asset.ASSET_TYPE}`);
     }
-    
+
     switch (assetType) {
       case AssetType.FIAT:
         // If the user adds a new fiat asset, delete all existing blockchain assets
