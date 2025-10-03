@@ -662,7 +662,8 @@ export async function calculateACB(asset_symbol: string): Promise<
     totalCosts: number,
     totalOutlays: number,
     totalGainLoss: number,
-    superficialLosses: number
+    superficialLosses: number,
+    totalIncome: number,
   }>
 > {
   try {
@@ -686,6 +687,7 @@ export async function calculateACB(asset_symbol: string): Promise<
     let totalOutlays = 0;
     let totalGainLoss = 0;
     let superficialLosses = 0;
+    let totalIncome = 0;
     
     // Per-year aggregates
     const yearlyTotals: Record<string, any> = {};
@@ -701,7 +703,8 @@ export async function calculateACB(asset_symbol: string): Promise<
           totalCosts: 0,
           totalOutlays: 0,
           totalGainLoss: 0,
-          superficialLosses: 0
+          superficialLosses: 0,
+          totalIncome: 0,
         };
       }
 
@@ -716,15 +719,15 @@ export async function calculateACB(asset_symbol: string): Promise<
         if (totalUnits === 0) {
           throw new Error(`Cannot sell ${asset_symbol} because no units are available`);
         }
-        const sellPrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
-        if (sellPrice instanceof Error) throw sellPrice;
-        if (!sellPrice || !sellPrice.price) throw new Error(`No valid sell price found for transaction ${tx.id} of type ${tx.type}`);
+        const disposedAssetPrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
+        if (disposedAssetPrice instanceof Error) throw disposedAssetPrice;
+        if (!disposedAssetPrice || !disposedAssetPrice.price) throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
         // Proceeds
         let proceeds = 0;
         if (tx.receive_asset_symbol === fiat_symbol && tx.receive_asset_quantity) {
           proceeds = tx.receive_asset_quantity;
         } else if (tx.receive_asset_symbol && tx.receive_asset_quantity) {
-          proceeds = tx.send_asset_quantity * sellPrice.price;
+          proceeds = tx.send_asset_quantity * disposedAssetPrice.price; // FMV of disposed assets
         }
         // Fees (Outlays)
         let fee = 0;
@@ -732,7 +735,7 @@ export async function calculateACB(asset_symbol: string): Promise<
           fee = tx.fee_asset_quantity;
         } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
           if (tx.fee_asset_symbol === asset_symbol) {
-              fee = tx.fee_asset_quantity * sellPrice.price;
+              fee = tx.fee_asset_quantity * disposedAssetPrice.price;
           } else {
             const feePriceRow = await getLatestPrice(tx.fee_asset_symbol, fiat_symbol, tx.unix_timestamp);
             if (feePriceRow instanceof Error) throw feePriceRow;
@@ -775,15 +778,19 @@ export async function calculateACB(asset_symbol: string): Promise<
         if ((tx.type === TransactionType.BUY || tx.type === TransactionType.TRADE) && (!tx.send_asset_symbol || !tx.send_asset_quantity)) {
           throw new Error(`No valid send asset found for transaction ${tx.id} of type ${tx.type}`);
         };
-        const buyPrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
-        if (buyPrice instanceof Error) throw buyPrice;
-        if (!buyPrice || !buyPrice.price) throw new Error(`No valid buy price found for transaction ${tx.id} of type ${tx.type}`);
+        const aquiredAssetPrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
+        if (aquiredAssetPrice instanceof Error) throw aquiredAssetPrice;
+        if (!aquiredAssetPrice || !aquiredAssetPrice.price) throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
         // Costs
         let cost = 0;
         if (tx.send_asset_symbol === fiat_symbol && tx.send_asset_quantity) {
           cost = tx.send_asset_quantity;
         } else if (tx.receive_asset_symbol && tx.receive_asset_quantity && !(tx.type === TransactionType.RECEIVE && !tx.is_income)) {
-          cost = tx.receive_asset_quantity * buyPrice.price;
+          cost = tx.receive_asset_quantity * aquiredAssetPrice.price; // FMV of aqcuired assets
+          if (tx.is_income) {
+            totalIncome += cost;
+            yearlyTotals[year].totalIncome += cost;
+          }
         }
         // Fees
         let fee = 0;
@@ -791,7 +798,7 @@ export async function calculateACB(asset_symbol: string): Promise<
           fee = tx.fee_asset_quantity;
         } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
           if (tx.fee_asset_symbol === asset_symbol) {
-              fee = tx.fee_asset_quantity * buyPrice.price;
+              fee = tx.fee_asset_quantity * aquiredAssetPrice.price;
           } else {
             const feePriceRow = await getLatestPrice(tx.fee_asset_symbol, fiat_symbol, tx.unix_timestamp);
             if (feePriceRow instanceof Error) throw feePriceRow;
@@ -813,11 +820,11 @@ export async function calculateACB(asset_symbol: string): Promise<
         tx.send_asset_symbol !== asset_symbol &&
         tx.receive_asset_symbol !== asset_symbol
       ) {
-        const feePrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
-        if (feePrice instanceof Error) throw feePrice;
-        if (!feePrice || !feePrice.price) throw new Error(`No valid fee price found for transaction ${tx.id} of type ${tx.type}`);
+        const feeAssetPrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
+        if (feeAssetPrice instanceof Error) throw feeAssetPrice;
+        if (!feeAssetPrice || !feeAssetPrice.price) throw new Error(`No valid fee price found for transaction ${tx.id} of type ${tx.type}`);
         // Proceeds
-        let proceeds = tx.fee_asset_quantity * feePrice.price;
+        let proceeds = tx.fee_asset_quantity * feeAssetPrice.price;
         // Costs + ACB
         const cost = (tx.fee_asset_quantity / totalUnits) * acb;
         acb -= cost;
@@ -844,9 +851,6 @@ export async function calculateACB(asset_symbol: string): Promise<
       }
       if (yearlyTotals[year].acb < 0) yearlyTotals[year].acb = 0; // Prevent negative due to incomplete data
       if (yearlyTotals[year].totalUnits < 0) yearlyTotals[year].totalUnits = 0; // Prevent negative due to incomplete data
-      if (asset_symbol === 'XLM') {
-        console.log(acb);
-      }
     }
     // Final totals
     yearlyTotals['TOTALS'] = {
@@ -857,6 +861,7 @@ export async function calculateACB(asset_symbol: string): Promise<
       totalOutlays,
       totalGainLoss,
       superficialLosses,
+      totalIncome,
     };
     return yearlyTotals;
   } catch (err) {

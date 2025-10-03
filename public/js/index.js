@@ -690,6 +690,7 @@
                 <td>${y.totalOutlays != null ? y.totalOutlays.toFixed(2) : 'N/A'}</td>
                 <td>${y.totalGainLoss != null ? y.totalGainLoss.toFixed(2) : 'N/A'}</td>
                 <td>${y.superficialLosses != null ? y.superficialLosses.toFixed(2) : 'N/A'}</td>
+                <td>${y.totalIncome != null ? y.totalIncome.toFixed(2) : 'N/A'}</td>
               </tr>`
             ).join('');
           return `
@@ -702,6 +703,7 @@
             <td>${totals.totalOutlays != null ? totals.totalOutlays.toFixed(2) : 'N/A'}</td>
             <td>${totals.totalGainLoss != null ? totals.totalGainLoss.toFixed(2) : 'N/A'}</td>
             <td>${totals.superficialLosses != null ? totals.superficialLosses.toFixed(2) : 'N/A'}</td>
+            <td>${totals.totalIncome != null ? totals.totalIncome.toFixed(2) : 'N/A'}</td>
             <td>
               <details>
                 <summary>Yearly breakdown</summary>
@@ -716,6 +718,7 @@
                       <th>Total Outlays</th>
                       <th>Total Gain/Loss</th>
                       <th>Superficial Losses</th>
+                      <th>Total Income</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -739,7 +742,8 @@
                   totalCosts: 0,
                   totalOutlays: 0,
                   totalGainLoss: 0,
-                  superficialLosses: 0
+                  superficialLosses: 0,
+                  totalIncome: 0
                 };
               }
               yearly[year].acb += Number(y.acb) || 0;
@@ -748,6 +752,7 @@
               yearly[year].totalOutlays += Number(y.totalOutlays) || 0;
               yearly[year].totalGainLoss += Number(y.totalGainLoss) || 0;
               yearly[year].superficialLosses += Number(y.superficialLosses) || 0;
+              yearly[year].totalIncome += Number(y.totalIncome) || 0;
             });
         });
         const years = Object.keys(yearly).sort();
@@ -761,6 +766,7 @@
             <td>${y.totalOutlays.toFixed(2)}</td>
             <td>${y.totalGainLoss.toFixed(2)}</td>
             <td>${y.superficialLosses.toFixed(2)}</td>
+            <td>${y.totalIncome.toFixed(2)}</td>
           </tr>`;
         }).join('') || '<tr><td colspan="7">No yearly data</td></tr>';
       } catch (e) {

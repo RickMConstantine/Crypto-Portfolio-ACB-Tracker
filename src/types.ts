@@ -45,3 +45,15 @@ export interface TransactionInput {
 export interface Transaction extends TransactionInput {
     id: number;
 }
+
+export interface AcbData {
+    acb: number;
+    totalUnits: number;
+    avgCostPerUnit: number;
+    totalProceeds: number;
+    totalCosts: number;
+    totalOutlays: number;
+    totalGainLoss: number;
+    superficialLosses: number;
+    totalIncome: number;
+}
