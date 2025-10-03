@@ -106,7 +106,7 @@
       ).then(() => {
         const rows = document.querySelectorAll('#assets-table tbody tr');
         rows.forEach(tr => {
-          const symbol = tr.children[0].textContent;
+          const symbol = tr.children[1].textContent;
           tr.onmouseenter = async function () {
             tr.style.background = '#ffe6e6';
             tr.title = 'Click to delete asset';
