@@ -21,15 +21,15 @@
         Object.keys(contents).forEach(key => contents[key].style.display = 'none');
         contents[tab.dataset.tab].style.display = '';
         switch (tab.dataset.tab) {
-          case 'assets':
-            renderAssets();
-            break;
-          case 'prices':
-            renderPrices();
-            break;
-          case 'transactions':
-            renderTransactions();
-            break;
+          // case 'assets':
+          //   renderAssets();
+          //   break;
+          // case 'prices':
+          //   renderPrices();
+          //   break;
+          // case 'transactions':
+          //   renderTransactions();
+          //   break;
           case 'tax':
             renderTaxPage();
         }
