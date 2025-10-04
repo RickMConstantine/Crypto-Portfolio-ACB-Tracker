@@ -278,9 +278,10 @@
       cancelBtn.onclick = function() {
         modal.classList.remove('active');
       };
-      modal.onclick = function(e) {
-        if (e.target === modal) modal.classList.remove('active');
-      };
+      // Clicking outside modal-content closes modal
+      // modal.onclick = function(e) {
+      //   if (e.target === modal) modal.classList.remove('active');
+      // };
       form.onsubmit = async function(e) {
         e.preventDefault();
         errorDiv.textContent = '';
@@ -394,7 +395,7 @@
       if (filters.date_to) params.append('date_to', filters.date_to);
       const url = '/api/transactions' + (params.toString() ? `?${params.toString()}` : '');
       await fetchAndRender(url, 'transactions-table', row =>
-        `<td>${row.id}</td><td>${new Date(row.unix_timestamp).toISOString()}</td><td>${row.type}</td>
+        `<td>${row.id}</td><td>${new Date(row.unix_timestamp).toLocaleString()}</td><td>${row.type}</td>
          <td>${row.send_asset_symbol}</td><td>${row.send_asset_quantity ? row.send_asset_quantity : ''}</td>
          <td>${row.receive_asset_symbol}</td><td>${row.receive_asset_quantity ? row.receive_asset_quantity : ''}</td>
          <td>${row.fee_asset_symbol}</td><td>${row.fee_asset_quantity ? row.fee_asset_quantity : ''}</td>
@@ -592,9 +593,9 @@
         modal.classList.remove('active');
       };
       // Clicking outside modal-content closes modal
-      modal.onclick = function(e) {
-        if (e.target === modal) modal.classList.remove('active');
-      };
+      // modal.onclick = function(e) {
+      //   if (e.target === modal) modal.classList.remove('active');
+      // };
     }
 
     async function populateAddEditTransactionDropdowns() {
