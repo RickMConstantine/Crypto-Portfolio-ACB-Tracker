@@ -697,8 +697,8 @@ export async function calculateACB(asset_symbol: string): Promise<
       const year = new Date(tx.unix_timestamp).getFullYear().toString();
       if (!yearlyTotals[year]) {
         yearlyTotals[year] = {
-          acb: 0,
-          totalUnits: 0,
+          acb,
+          totalUnits,
           totalProceeds: 0,
           totalCosts: 0,
           totalOutlays: 0,
@@ -708,39 +708,43 @@ export async function calculateACB(asset_symbol: string): Promise<
         };
       }
 
+      const priceCache: Record<string, Price> = {};
+      for (const symbol of [tx.send_asset_symbol, tx.receive_asset_symbol, tx.fee_asset_symbol]) {
+        if (!symbol || symbol === fiat_symbol || priceCache[symbol]) continue;
+        const assetprice = await getLatestPrice(symbol, fiat_symbol, tx.unix_timestamp);
+        if (assetprice instanceof Error) throw assetprice;
+        if (!assetprice || !assetprice.price) throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+        priceCache[symbol] = assetprice;
+      };
+
       // --- Sell/Send/Trade: Disposition ---
-      if ([TransactionType.SELL, TransactionType.SEND, TransactionType.TRADE].includes(tx.type)) {
-        if (!tx.send_asset_symbol || !tx.send_asset_quantity) {
-          throw new Error(`No valid send asset found for transaction ${tx.id} of type ${tx.type}`);
+      if ([TransactionType.SELL, TransactionType.SEND, TransactionType.TRADE].includes(tx.type) && tx.send_asset_symbol === asset_symbol) {
+        if (!tx.send_asset_quantity) {
+          throw new Error(`No valid send quantity found for transaction ${tx.id} of type ${tx.type}`);
         };
-        if ((tx.type === TransactionType.SELL || tx.type === TransactionType.TRADE) && (!tx.receive_asset_symbol || !tx.receive_asset_quantity)) {
+        if ((tx.type === TransactionType.SELL && tx.receive_asset_symbol !== fiat_symbol) ||
+            ((tx.type === TransactionType.SELL || tx.type === TransactionType.TRADE) && (!tx.receive_asset_symbol || !tx.receive_asset_quantity))) {
           throw new Error(`No valid receive asset found for transaction ${tx.id} of type ${tx.type}`);
         };
         if (totalUnits === 0) {
           throw new Error(`Cannot sell ${asset_symbol} because no units are available`);
         }
-        const disposedAssetPrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
-        if (disposedAssetPrice instanceof Error) throw disposedAssetPrice;
-        if (!disposedAssetPrice || !disposedAssetPrice.price) throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
         // Proceeds
         let proceeds = 0;
-        if (tx.receive_asset_symbol === fiat_symbol && tx.receive_asset_quantity) {
-          proceeds = tx.receive_asset_quantity;
-        } else if (tx.receive_asset_symbol && tx.receive_asset_quantity) {
-          proceeds = tx.send_asset_quantity * disposedAssetPrice.price; // FMV of disposed assets
+        if (tx.type === TransactionType.SELL) {
+          proceeds = tx.receive_asset_quantity!;
+        } else if (tx.type === TransactionType.SEND) {
+          proceeds = tx.send_asset_quantity * priceCache[tx.send_asset_symbol].price; // FMV of disposed assets
+        } else if (tx.type === TransactionType.TRADE) {
+          proceeds = tx.receive_asset_quantity! * priceCache[tx.receive_asset_symbol!].price; // FMV of acquired assets
         }
-        // Fees (Outlays)
+        // Fees (Outlays) - Only applicable for SELL and SEND. TRADE will add fee back into ACB of the aqcquired asset.
         let fee = 0;
-        if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
-          fee = tx.fee_asset_quantity;
-        } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-          if (tx.fee_asset_symbol === asset_symbol) {
-              fee = tx.fee_asset_quantity * disposedAssetPrice.price;
-          } else {
-            const feePriceRow = await getLatestPrice(tx.fee_asset_symbol, fiat_symbol, tx.unix_timestamp);
-            if (feePriceRow instanceof Error) throw feePriceRow;
-            if (!feePriceRow || !feePriceRow.price) throw new Error(`No valid fee price found for transaction ${tx.id} of type ${tx.type}`);
-            fee = tx.fee_asset_quantity * feePriceRow.price;
+        if (tx.type !== TransactionType.TRADE) {
+          if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
+            fee = tx.fee_asset_quantity;
+          } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
+            fee = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
           }
         }
         // Costs + ACB
@@ -771,40 +775,31 @@ export async function calculateACB(asset_symbol: string): Promise<
       }
 
       // --- Buy/Receive/Trade: Acquisition ---
-      if ([TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(tx.type)) {
-        if (!tx.receive_asset_symbol || !tx.receive_asset_quantity) {
-          throw new Error(`No valid receive asset found for transaction ${tx.id} of type ${tx.type}`);
+      if ([TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(tx.type) && tx.receive_asset_symbol === asset_symbol) {
+        if (!tx.receive_asset_quantity) {
+          throw new Error(`No valid receive quantity found for transaction ${tx.id} of type ${tx.type}`);
         };
-        if ((tx.type === TransactionType.BUY || tx.type === TransactionType.TRADE) && (!tx.send_asset_symbol || !tx.send_asset_quantity)) {
+        if ((tx.type === TransactionType.BUY && tx.send_asset_symbol !== fiat_symbol) || 
+            (tx.type === TransactionType.BUY || tx.type === TransactionType.TRADE) && (!tx.send_asset_symbol || !tx.send_asset_quantity)) {
           throw new Error(`No valid send asset found for transaction ${tx.id} of type ${tx.type}`);
         };
-        const aquiredAssetPrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
-        if (aquiredAssetPrice instanceof Error) throw aquiredAssetPrice;
-        if (!aquiredAssetPrice || !aquiredAssetPrice.price) throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
         // Costs
         let cost = 0;
-        if (tx.send_asset_symbol === fiat_symbol && tx.send_asset_quantity) {
-          cost = tx.send_asset_quantity;
-        } else if (tx.receive_asset_symbol && tx.receive_asset_quantity && !(tx.type === TransactionType.RECEIVE && !tx.is_income)) {
-          cost = tx.receive_asset_quantity * aquiredAssetPrice.price; // FMV of aqcuired assets
-          if (tx.is_income) {
-            totalIncome += cost;
-            yearlyTotals[year].totalIncome += cost;
-          }
+        if (tx.type === TransactionType.BUY) {
+          cost = tx.send_asset_quantity!;
+        } else if (tx.type === TransactionType.RECEIVE && tx.is_income) {
+          cost = tx.receive_asset_quantity * priceCache[tx.receive_asset_symbol].price; // FMV of aqcuired assets
+          totalIncome += cost;
+          yearlyTotals[year].totalIncome += cost;
+        } else if (tx.type === TransactionType.TRADE) {
+          cost = tx.send_asset_quantity! * priceCache[tx.send_asset_symbol!].price; // FMV of disposed assets
         }
         // Fees
         let fee = 0;
         if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
           fee = tx.fee_asset_quantity;
         } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-          if (tx.fee_asset_symbol === asset_symbol) {
-              fee = tx.fee_asset_quantity * aquiredAssetPrice.price;
-          } else {
-            const feePriceRow = await getLatestPrice(tx.fee_asset_symbol, fiat_symbol, tx.unix_timestamp);
-            if (feePriceRow instanceof Error) throw feePriceRow;
-            if (!feePriceRow || !feePriceRow.price) throw new Error(`No valid fee price found for transaction ${tx.id} of type ${tx.type}`);
-            fee = tx.fee_asset_quantity * feePriceRow.price;
-          }
+          fee = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
         }
         // ACB
         acb += cost + fee;
@@ -820,11 +815,8 @@ export async function calculateACB(asset_symbol: string): Promise<
         tx.send_asset_symbol !== asset_symbol &&
         tx.receive_asset_symbol !== asset_symbol
       ) {
-        const feeAssetPrice = await getLatestPrice(asset_symbol, fiat_symbol, tx.unix_timestamp);
-        if (feeAssetPrice instanceof Error) throw feeAssetPrice;
-        if (!feeAssetPrice || !feeAssetPrice.price) throw new Error(`No valid fee price found for transaction ${tx.id} of type ${tx.type}`);
         // Proceeds
-        let proceeds = tx.fee_asset_quantity * feeAssetPrice.price;
+        let proceeds = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
         // Costs + ACB
         const cost = (tx.fee_asset_quantity / totalUnits) * acb;
         acb -= cost;
@@ -849,8 +841,6 @@ export async function calculateACB(asset_symbol: string): Promise<
           yearlyTotals[year].totalGainLoss += gainLoss;
         }
       }
-      if (yearlyTotals[year].acb < 0) yearlyTotals[year].acb = 0; // Prevent negative due to incomplete data
-      if (yearlyTotals[year].totalUnits < 0) yearlyTotals[year].totalUnits = 0; // Prevent negative due to incomplete data
     }
     // Final totals
     yearlyTotals['TOTALS'] = {
