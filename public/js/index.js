@@ -407,7 +407,7 @@
           tr.onclick = async function () {
             let transaction = {
               id: id,
-              unix_timestamp: tr.children[1].textContent,
+              unix_timestamp: new Date(tr.children[1].textContent).getTime(),
               type: tr.children[2].textContent,
               send_asset_symbol: tr.children[3].textContent,
               send_asset_quantity: tr.children[4].textContent,
@@ -512,7 +512,8 @@
         deleteBtn.style.display = 'none';
         populateAddEditTransactionDropdowns().then(() => {
           form.reset();
-          document.getElementById('edit-date').value = new Date().toISOString().slice(0,16);
+          const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
+          document.getElementById('edit-date').value = new Date(Date.now() - tzoffset).toISOString().slice(0,16);
           document.getElementById('edit-transaction-error').textContent = '';
           validateAddEditTransactionForm();
         });
@@ -524,7 +525,8 @@
         deleteBtn.style.display = '';
         populateAddEditTransactionDropdowns().then(() => {
           form.reset();
-          document.getElementById('edit-date').value = new Date(transaction.unix_timestamp).toISOString().slice(0,16);
+          const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
+          document.getElementById('edit-date').value = new Date(transaction.unix_timestamp - tzoffset).toISOString().slice(0,16);
           document.getElementById('edit-type-select').value = transaction.type || '';
           document.getElementById('edit-send-asset-select').value = transaction.send_asset_symbol || '';
           document.getElementById('edit-send-asset-quantity').value = transaction.send_asset_quantity || '';
