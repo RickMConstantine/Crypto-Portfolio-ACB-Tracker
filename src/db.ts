@@ -217,17 +217,13 @@ async function getAssetBySymbol(symbol: string): Promise<Asset | Error> {
 export async function getAssets(asset_type?: AssetType): Promise<Asset[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
-    if (asset_type) {
-      db.all('SELECT * FROM assets WHERE asset_type = ?', [asset_type], (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows);
-      });
-    } else {
-      db.all('SELECT * FROM assets', (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows);
-      });
-    }
+    let sql = 'SELECT * FROM assets';
+    if (asset_type) sql += ' WHERE asset_type = ?';
+    sql += ' ORDER BY asset_type DESC, name ASC';
+    db.all(sql, [asset_type], (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
   });
 }
 
@@ -361,6 +357,13 @@ export async function updatePrice({ unix_timestamp, asset_symbol, fiat_symbol, p
       (err, rows) => {
         if (err) return reject(err);
         if (!rows.length) return reject(new Error('Failed to update price'));
+        console.log(
+          `Updated price with 
+          unix_timestamp: ${(rows[0] as any).unix_timestamp}, 
+          asset_symbol: ${(rows[0] as any).asset_symbol}, 
+          fiat_symbol: ${(rows[0] as any).fiat_symbol}, 
+          price: ${(rows[0] as any).price}`
+        );
         resolve(rows);
       }
     );
@@ -376,6 +379,7 @@ export async function deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }:
       (err, rows) => {
         if (err) return reject(err);
         if (!rows.length) return reject(new Error('Failed to delete price'));
+        console.log(`Deleted price with unix_timestamp: ${unix_timestamp}, asset_symbol: ${asset_symbol}, fiat_symbol: ${fiat_symbol}`);
         resolve(rows);
       }
     );

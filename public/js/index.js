@@ -87,11 +87,6 @@
         renderBlockchainAssets();
         renderFiatCurrency();
         renderPrices();
-        populateAssetDropdowns([
-          document.getElementById('send-asset-select'),
-          document.getElementById('receive-asset-select'),
-          document.getElementById('fee-asset-select')
-        ]);
         e.target.reset();
       } catch (err) {
         errorDiv.textContent = err.message || 'Failed to set fiat currency';
@@ -115,11 +110,6 @@
                 await fetch(`/api/asset/${symbol}`, { method: 'DELETE' });
                 renderBlockchainAssets();
                 renderPrices();
-                populateAssetDropdowns([
-                  document.getElementById('send-asset-select'),
-                  document.getElementById('receive-asset-select'),
-                  document.getElementById('fee-asset-select')
-                ]);
               }
             };
           };
@@ -150,11 +140,6 @@
         }
         renderBlockchainAssets();
         renderPrices(); // In case prices were added with the asset
-        populateAssetDropdowns([
-          document.getElementById('send-asset-select'),
-          document.getElementById('receive-asset-select'),
-          document.getElementById('fee-asset-select')
-        ]);
         e.target.reset();
       } catch (err) {
         errorDiv.textContent = err.message || 'Failed to add asset';
@@ -355,7 +340,7 @@
 
     // Add Price button logic
     document.getElementById('open-edit-price-modal-btn').onclick = function() {
-      showAddEditPriceModal(null);
+      showAddEditPriceModal();
     };
 
     //=======================
@@ -435,7 +420,7 @@
 
     // Add/Import Transaction button logic
     document.getElementById('open-add-import-modal-btn').onclick = function() {
-      showAddEditTransactionModal(null);
+      showAddEditTransactionModal();
     };
 
     document.getElementById('import-transactions-btn').onclick = async function() {
