@@ -62,7 +62,34 @@
     }
     #edit-price-modal label { display: block; margin-top: 0.5em; }
     #edit-price-modal button { margin-top: 1em; }
+    #edit-price-modal #delete-price-btn { margin-left: 1em; color: #fff; background: #d9534f; }
     #edit-price-modal #edit-price-error { color: red; margin-top: 0.5em; }
+    /* Edit Asset Modal styles */
+    #edit-asset-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.3);
+      align-items: center;
+      justify-content: center;
+      z-index: 1200;
+    }
+    #edit-asset-modal.active {
+      display: flex;
+    }
+    #edit-asset-modal .modal-content {
+      background: #fff;
+      padding: 2em;
+      border-radius: 8px;
+      min-width: 350px;
+    }
+    #edit-asset-modal label { display: block; margin-top: 0.5em; }
+    #edit-asset-modal button { margin-top: 1em; }
+    #edit-asset-modal #delete-asset-btn { margin-left: 1em; color: #fff; background: #d9534f; }
+    #edit-asset-modal #edit-asset-error { color: red; margin-top: 0.5em; }
   </style>
 </head>
 <body>
@@ -73,7 +100,17 @@
     <div class="tab" data-tab="transactions">Transactions</div>
     <div class="tab" data-tab="tax">Tax</div>
   </div>
+  <!-- Asset Tab -->
   <div class="tab-content" id="assets-content">
+    <!-- <details>
+      <summary>API Keys</summary>
+      <div style="margin-top:0.5em;">
+        <span>CryptoCompare: </span><input type="text" id="cryptocompare-api-key" placeholder="Enter CryptoCompare API Key" style="width:300px;">
+      </div>
+      <div style="margin-top:0.5em;">
+        <span>Finage: </span><input type="text" id="finage-api-key" placeholder="Enter Finage API Key" style="width:300px;">
+      </div>
+    </details> -->
     <h2>Fiat Currency</h2>
     <form id="fiat-currency-form">
       <input type="text" name="symbol" placeholder="Enter fiat currency (e.g. CAD, USD)" required>
@@ -92,16 +129,13 @@
     </table>
     <div id="fiat-currency-error" style="color:red; margin-top:0.5em;"></div>
     <h2>Blockchain Assets</h2>
-    <form id="add-asset-form">
-      <input type="text" name="symbol" placeholder="Symbol" required>
-      <button type="submit">Add Asset</button>
-    </form>
-    <div id="add-asset-error" style="color:red; margin-top:0.5em;"></div>
+    <button id="open-edit-asset-modal-btn" style="margin-bottom:1em;">Add Asset</button>
     <table id="assets-table" border="1">
       <thead>
         <tr>
           <th>Name</th>
           <th>Symbol</th>
+          <th>Launch Date</th>
           <th>Logo</th>
         </tr>
       </thead>
@@ -110,6 +144,47 @@
       </tbody>
     </table>
   </div>
+  <!-- Add/Edit Asset Modal -->
+  <div id="edit-asset-modal" class="modal">
+    <div class="modal-content">
+      <h2 id="edit-asset-title">Edit Asset</h2>
+      <form id="edit-asset-form">
+        <div>
+          <label for="edit-asset-symbol">Symbol:</label>
+          <input type="text" id="edit-asset-symbol" name="symbol" required />
+        </div>
+        <details style="margin-top:1em;">
+          <summary>Advanced Options</summary>
+          <div>
+            <label for="edit-asset-name">Name:</label>
+            <input type="text" id="edit-asset-name" name="name" />
+          </div>
+          <!-- <div>
+            <label for="edit-asset-type">Asset Type:</label>
+            <select id="edit-asset-type" name="type" required>
+              <option value="blockchain">Blockchain</option>
+              <option value="fiat">Fiat</option>
+            </select>
+          </div> -->
+          <div>
+            <label for="edit-asset-logo-url">Logo URL:</label>
+            <input type="text" id="edit-asset-logo-url" name="logo_url" />
+          </div>
+          <div>
+            <label for="edit-asset-launch-date">Launch Date:</label>
+            <input type="date" id="edit-asset-launch-date" name="launch_date" />
+          </div>
+        </details>
+        <div id="edit-asset-error" style="color:#d9534f;"></div>
+        <div style="margin-top:1em;">
+          <button type="submit" id="save-asset-btn">Save</button>
+          <button type="button" id="delete-asset-btn" style="display:none;">Delete</button>
+          <button type="button" id="cancel-edit-asset-modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <!-- Prices Tab -->
   <div class="tab-content" id="prices-content" style="display:none;">
     <h2>Prices</h2>
     <button id="open-edit-price-modal-btn" style="margin-bottom:1em;">Add Price</button>
@@ -147,9 +222,10 @@
       </tbody>
     </table>
   </div>
+  <!-- Add/Edit Price Modal -->
   <div id="edit-price-modal">
     <div class="modal-content">
-      <h3 id="edit-price-title">Add Price</h3>
+      <h3 id="edit-price-title">Edit Price</h3>
       <form id="edit-price-modal-form">
         <label>Date:
           <input type="date" name="date" id="edit-price-date" required>
@@ -167,6 +243,7 @@
       </form>
     </div>
   </div>
+  <!-- Transactions Tab -->
   <div class="tab-content" id="transactions-content" style="display:none;">
     <h2>Transactions</h2>
     <button id="open-add-import-modal-btn" style="margin-bottom:1em;">Add/Import Transaction</button>
@@ -246,6 +323,7 @@
       </tbody>
     </table>
   </div>
+  <!-- Add/Edit Transaction Modal -->
   <div id="edit-transaction-modal">
     <div class="modal-content">
       <h3 id="edit-transaction-title">Edit Transaction</h3>

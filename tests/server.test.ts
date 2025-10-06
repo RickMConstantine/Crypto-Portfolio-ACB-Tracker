@@ -29,7 +29,7 @@ describe('Express API endpoints (mocked db)', () => {
   });
 
   it('GET /api/assets', async () => {
-    const res = await request(app).get('/api/assets/blockchain');
+    const res = await request(app).get('/api/assets?asset_type=blockchain');
     expect(res.status).toBe(200);
     expect(res.body.some((b: any) => 
       b.id === ASSETS_ROW.id && 

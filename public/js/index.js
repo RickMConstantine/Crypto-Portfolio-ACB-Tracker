@@ -62,7 +62,7 @@
     renderAssets();
 
     function renderFiatCurrency() {
-      fetchAndRender('/api/assets/fiat', 'fiat-currency-table', row =>
+      fetchAndRender('/api/assets?asset_type=fiat', 'fiat-currency-table', row =>
         `<td>${row.symbol}</td><td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>`
       );
     }
@@ -75,7 +75,7 @@
       const errorDiv = document.getElementById('fiat-currency-error');
       errorDiv.textContent = '';
       try {
-        const resp = await fetch('/api/asset-by-symbol-and-type', {
+        const resp = await fetch('/api/asset', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ symbol: symbol, asset_type: 'fiat' })
@@ -94,60 +94,149 @@
     };
 
     function renderBlockchainAssets() {
-      fetchAndRender('/api/assets/blockchain', 'assets-table', row =>
+      fetchAndRender('/api/assets?asset_type=blockchain', 'assets-table', row =>
         `<td>${row.name}</td>
          <td>${row.symbol}</td>
+         <td>${row.launch_date ? new Date(row.launch_date).toLocaleDateString() : ''}</td>
          <td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>`
       ).then(() => {
         const rows = document.querySelectorAll('#assets-table tbody tr');
         rows.forEach(tr => {
+          const name = tr.children[0].textContent;
           const symbol = tr.children[1].textContent;
-          tr.onmouseenter = async function () {
-            tr.style.background = '#ffe6e6';
-            tr.title = 'Click to delete asset';
-            tr.onclick = async function () {
-              if (confirm('Delete this asset?')) {
-                await fetch(`/api/asset/${symbol}`, { method: 'DELETE' });
-                renderBlockchainAssets();
-                renderPrices();
-              }
-            };
+          const launch_date = new Date(tr.children[2].textContent).getTime();
+          const logo_url = tr.children[3].querySelector('img').src;
+          tr.onmouseenter = function () {
+            tr.style.background = '#e6f7ff';
+            tr.title = 'Click to edit asset';
           };
           tr.onmouseleave = function () {
             tr.style.background = '';
             tr.title = '';
-            tr.onclick = null;
+          };
+          tr.onclick = function () {
+            showAddEditAssetModal({ name, symbol, launch_date, logo_url });
           };
         });
       });
     }
 
-    // Add Blockchain Asset
-    document.getElementById('add-asset-form').onsubmit = async e => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const errorDiv = document.getElementById('add-asset-error');
+    // Add/Edit Asset Modal logic
+    function showAddEditAssetModal(asset) {
+      const modal = document.getElementById('edit-asset-modal');
+      const form = document.getElementById('edit-asset-form');
+      const title = document.getElementById('edit-asset-title');
+      const errorDiv = document.getElementById('edit-asset-error');
+      const symbolInput = document.getElementById('edit-asset-symbol');
+      const nameInput = document.getElementById('edit-asset-name');
+      // const typeInput = document.getElementById('edit-asset-type');
+      const logoInput = document.getElementById('edit-asset-logo-url');
+      const launchDateInput = document.getElementById('edit-asset-launch-date');
+      const saveBtn = document.getElementById('save-asset-btn');
+      const cancelBtn = document.getElementById('cancel-edit-asset-modal');
+      const deleteBtn = document.getElementById('delete-asset-btn');
+      form.reset();
+      setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn], false);
       errorDiv.textContent = '';
-      try {
-        const resp = await fetch('/api/asset-by-symbol-and-type', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol: fd.get('symbol'), asset_type: 'blockchain'})
-        });
-        if (!resp.ok) {
-          const msg = await resp.text();
-          throw new Error(msg || 'Failed to add asset');
-        }
-        renderBlockchainAssets();
-        renderPrices(); // In case prices were added with the asset
-        e.target.reset();
-      } catch (err) {
-        errorDiv.textContent = err.message || 'Failed to add asset';
+      if (asset) {
+        title.textContent = 'Edit Asset';
+        symbolInput.disabled = true;
+        symbolInput.value = asset.symbol;
+        nameInput.value = asset.name;
+        // typeInput.value = asset.type;
+        logoInput.value = asset.logo_url;
+        launchDateInput.value = asset.launch_date ? getLocalDateString(asset.launch_date) : '';
+        deleteBtn.style.display = '';
+      } else {
+        title.textContent = 'Add Asset';
+        symbolInput.disabled = false;
+        deleteBtn.style.display = 'none';
       }
-    };
+      modal.classList.add('active');
+      cancelBtn.onclick = function() {
+        modal.classList.remove('active');
+      };
+      form.onsubmit = async function(e) {
+        e.preventDefault();
+        errorDiv.textContent = '';
+        const fd = new FormData(form);
+        try {
+          let promise;
+          if (asset) {
+            // Edit mode
+            promise = fetch(`/api/asset/${asset.symbol}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                symbol: fd.get('symbol'),
+                name: fd.get('name'),
+                asset_type: 'blockchain',
+                logo_url: fd.get('logo_url'),
+                launch_date: fd.get('launch_date') ? new Date(fd.get('launch_date')).getTime() : null
+              })
+            });
+          } else {
+            // Add mode
+            promise = fetch('/api/asset', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                symbol: fd.get('symbol'),
+                name: fd.get('name'),
+                asset_type: 'blockchain',
+                logo_url: fd.get('logo_url'),
+                launch_date: fd.get('launch_date') ? new Date(fd.get('launch_date')).getTime() : null
+              })
+            });
+          }
+          setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn]);
+          const response = await promise;
+          if (!response.ok) {
+            const msg = await response.text();
+            throw new Error(msg || 'Failed to save asset');
+          }
+          modal.classList.remove('active');
+          renderBlockchainAssets();
+          renderPrices();
+        } catch (err) {
+          setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn], false);
+          errorDiv.textContent = err.message || 'Failed to save asset';
+        }
+      };
+      deleteBtn.onclick = async function() {
+        if (!asset) return;
+        if (!confirm('Are you sure you want to delete this asset?')) return;
+        errorDiv.textContent = '';
+        try {
+          const resp = await fetch(`/api/asset/${asset.symbol}`, {
+            method: 'DELETE'
+          });
+          if (!resp.ok) {
+            const msg = await resp.text();
+            throw new Error(msg || 'Failed to delete asset');
+          }
+          modal.classList.remove('active');
+          renderBlockchainAssets();
+          renderPrices();
+        } catch (err) {
+          errorDiv.textContent = err.message || 'Failed to delete asset';
+        }
+      };
+    }
+
+    // Add Asset button logic
+    document.getElementById('open-edit-asset-modal-btn')?.addEventListener('click', function() {
+      showAddEditAssetModal();
+    });
+
+    function setDisable(selects, disable = true) {
+      selects.forEach(select => {
+        select.disabled = disable;
+      });
+    }
 
     async function populateAssetDropdowns(selects, assetType) {
-      const res = await fetch(`/api/assets${assetType ? `/${assetType}` : ''}`);
+      const res = await fetch(`/api/assets${assetType ? `?asset_type=${assetType}` : ''}`);
       const assets = await res.json();
       selects.forEach(select => {
         select.innerHTML = '<option value="">Select Asset</option>';
@@ -272,7 +361,7 @@
         errorDiv.textContent = '';
         const fd = new FormData(form);
         // Get fiat symbol from API
-        const fiatRes = await fetch('/api/assets/fiat');
+        const fiatRes = await fetch('/api/assets?asset_type=fiat');
         const fiat = await fiatRes.json();
         const fiat_symbol = fiat[0]?.symbol || '';
         try {
@@ -495,10 +584,9 @@
         title.textContent = 'Add Transaction';
         importContainer.style.display = '';
         deleteBtn.style.display = 'none';
+        form.reset();
         populateAddEditTransactionDropdowns().then(() => {
-          form.reset();
-          const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
-          document.getElementById('edit-date').value = new Date(Date.now() - tzoffset).toISOString().slice(0,16);
+          document.getElementById('edit-date').value = getLocalDateTimeString(Date.now());
           document.getElementById('edit-transaction-error').textContent = '';
           validateAddEditTransactionForm();
         });
@@ -509,9 +597,7 @@
         importContainer.style.display = 'none';
         deleteBtn.style.display = '';
         populateAddEditTransactionDropdowns().then(() => {
-          form.reset();
-          const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
-          document.getElementById('edit-date').value = new Date(transaction.unix_timestamp - tzoffset).toISOString().slice(0,16);
+          document.getElementById('edit-date').value = transaction.unix_timestamp ? getLocalDateTimeString(transaction.unix_timestamp) : '';
           document.getElementById('edit-type-select').value = transaction.type || '';
           document.getElementById('edit-send-asset-select').value = transaction.send_asset_symbol || '';
           document.getElementById('edit-send-asset-quantity').value = transaction.send_asset_quantity || '';
@@ -763,4 +849,14 @@
       }
     }
     renderTaxPage();
+
+    // Helpers
+    function getLocalDateString(unix_timestamp) {
+      const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
+      return new Date(unix_timestamp - tzoffset).toISOString().slice(0,10);
+    }
+    function getLocalDateTimeString(unix_timestamp) {
+      const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
+      return new Date(unix_timestamp - tzoffset).toISOString().slice(0,19);
+    }
 })();
