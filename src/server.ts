@@ -129,9 +129,14 @@ async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Pr
         // Populate price data for the new blockchain fiat pair
         assetAdded = await addAsset({name: asset.NAME, symbol: asset.SYMBOL, asset_type: assetType, launch_date: asset.LAUNCH_DATE*1000, logo_url: asset.LOGO_URL});
         if (assetAdded instanceof Error) throw assetAdded;
-        await insertHistoricalPricesUsingCoinDesk(assetAdded[0].symbol);
-        if (asset.TimeFrom > assetAdded[0].launch_date && FINAGE_API_KEY) {
-          await insertHistoricalPricesUsingFinage(assetAdded[0].symbol, new Date(assetAdded[0].launch_date), new Date(asset.TimeFrom*1000));
+        const prices = await insertHistoricalPricesUsingCoinDesk(assetAdded[0].symbol);
+        if (prices instanceof Error) throw prices;
+        const oldestValidPrice = prices.find(p => p.price > 0);
+        if (oldestValidPrice && oldestValidPrice.unix_timestamp > assetAdded[0].launch_date && FINAGE_API_KEY) {
+          const startDate = new Date(assetAdded[0].launch_date);
+          const endDate = new Date(oldestValidPrice.unix_timestamp);
+          endDate.setDate(endDate.getDate() - 1); // Finage end date is inclusive, so subtract 1 day to avoid duplicate price
+          await insertHistoricalPricesUsingFinage(assetAdded[0].symbol, startDate, endDate);
         }
         break;
     }
@@ -139,7 +144,6 @@ async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Pr
     if (!assetAdded || !assetAdded.length) {
       throw new Error(`Failed to insert new ${assetType} asset: ${asset.NAME} (${asset.SYMBOL})`);
     }
-    console.log(`Inserted new ${assetAdded[0].asset_type} asset: ${assetAdded[0].name} (${assetAdded[0].symbol}).`);
 
     return assetAdded[0];
   } catch (err) {
@@ -183,7 +187,8 @@ app.delete('/api/price', async (req, res) => {
 });
 
 // Prices Helper Functions
-async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<void | Error> {
+async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Price[] | Error> {
+  console.log("insertHistoricalPricesUsingCoinDesk", symbol);
   try {
     if (!symbol) throw new Error('Symbol is required');
     const fiat = await getAssets({ asset_type: AssetType.FIAT });
@@ -216,13 +221,14 @@ async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<void
       throw new Error('No valid prices to insert');
     }
 
-    await addPrices(prices);
+    return await addPrices(prices);
   } catch (err) {
     throw err;
   }
 }
 
 async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date, endDate: Date): Promise<void | Error> {
+  console.log("insertHistoricalPricesUsingFinage", symbol, startDate, endDate);
   try {
     if (!symbol) throw new Error('Symbol is required');
     const fiat = await getAssets({ asset_type: AssetType.FIAT });
@@ -232,18 +238,17 @@ async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date
     // https://finage.co.uk/docs/api/crypto/crypto-aggregates-api
     let urlSearchParams = new URLSearchParams();
     urlSearchParams.append('limit', '30000');
-    urlSearchParams.append('api_key', FINAGE_API_KEY);
-    const usdPricesUrl = `https://api.finage.co.uk/agg/crypto/${symbol}USD/${startDate.toISOString().slice(0, 10)}/${endDate.toISOString().slice(0, 10)}?${urlSearchParams.toString()}`;
+    urlSearchParams.append('apikey', FINAGE_API_KEY);
+    const usdPricesUrl = `https://api.finage.co.uk/agg/crypto/${symbol}USD/1/day/${startDate.toISOString().slice(0, 10)}/${endDate.toISOString().slice(0, 10)}?${urlSearchParams.toString()}`;
     const usdPricesResponse = await fetch(usdPricesUrl);
     const usdPricesJson = await usdPricesResponse.json();
     if (!usdPricesJson.results || !Array.isArray(usdPricesJson.results)) {
       throw new Error('Invalid API response');
     }
     const usdPricesArray = usdPricesJson.results as FinageAggregatesResponse[];
-    console.log(usdPricesJson)
 
     // https://finage.co.uk/docs/api/forex/forex-aggregates
-    const fiatPricesUrl = `https://api.finage.co.uk/agg/forex/USD${fiat}/${startDate.toISOString().slice(0, 10)}/${endDate.toISOString().slice(0, 10)}?${urlSearchParams.toString()}`;
+    const fiatPricesUrl = `https://api.finage.co.uk/agg/forex/USD${fiat[0].symbol}/1/day/${startDate.toISOString().slice(0, 10)}/${endDate.toISOString().slice(0, 10)}?${urlSearchParams.toString()}`;
     const fiatPricesResponse = await fetch(fiatPricesUrl);
     const fiatPricesJson = await fiatPricesResponse.json();
     if (!fiatPricesJson.results || !Array.isArray(fiatPricesJson.results)) {
@@ -254,21 +259,26 @@ async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date
       acc[value.t] = value;
       return acc;
     }, {});
-    console.log(fiatPricesMap)
 
-    const prices = usdPricesArray.map((usdPrice: FinageAggregatesResponse) => ({
-      unix_timestamp: usdPrice.t,
-      price: usdPrice.c * fiatPricesMap[usdPrice.t].c,
-      asset_symbol: symbol,
-      fiat_symbol: fiat[0].symbol
-    }));
-    console.log(prices);
+    const finalPrices: Price[] = [];
+    usdPricesArray.forEach((usdPrice: FinageAggregatesResponse) => {
+      try {
+        finalPrices.push({
+          unix_timestamp: usdPrice.t,
+          price: usdPrice.c * fiatPricesMap[usdPrice.t].c,
+          asset_symbol: symbol,
+          fiat_symbol: fiat[0].symbol
+        });
+      } catch (error) {
+        console.error(`Error processing USD price for ${usdPrice}:`, error);
+      }
+    });
 
-    if (prices.length === 0) {
+    if (finalPrices.length === 0) {
       throw new Error('No valid prices to insert');
     }
 
-    await addPrices(prices);
+    await addPrices(finalPrices);
   } catch (err) {
     throw err;
   }
