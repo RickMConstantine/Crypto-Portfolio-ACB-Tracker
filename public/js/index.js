@@ -97,7 +97,7 @@
       fetchAndRender('/api/assets?asset_type=blockchain', 'assets-table', row =>
         `<td>${row.name}</td>
          <td>${row.symbol}</td>
-         <td>${row.launch_date ? new Date(row.launch_date).toLocaleDateString() : ''}</td>
+         <td>${row.launch_date ? new Date(row.launch_date).toISOString().slice(0, 10) : ''}</td>
          <td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>`
       ).then(() => {
         const rows = document.querySelectorAll('#assets-table tbody tr');
@@ -145,7 +145,7 @@
         nameInput.value = asset.name;
         // typeInput.value = asset.type;
         logoInput.value = asset.logo_url;
-        launchDateInput.value = asset.launch_date ? getLocalDateString(asset.launch_date) : '';
+        launchDateInput.value = asset.launch_date ? new Date(asset.launch_date).toISOString().slice(0,10) : '';
         deleteBtn.style.display = '';
       } else {
         title.textContent = 'Add Asset';
@@ -469,7 +469,7 @@
       if (filters.date_to) params.append('date_to', filters.date_to);
       const url = '/api/transactions' + (params.toString() ? `?${params.toString()}` : '');
       await fetchAndRender(url, 'transactions-table', row =>
-        `<td>${row.id}</td><td>${new Date(row.unix_timestamp).toLocaleString()}</td><td>${row.type}</td>
+        `<td>${row.id}</td><td>${getLocalDateTimeString(row.unix_timestamp)}</td><td>${row.type}</td>
          <td>${row.send_asset_symbol}</td><td>${row.send_asset_quantity ? row.send_asset_quantity : ''}</td>
          <td>${row.receive_asset_symbol}</td><td>${row.receive_asset_quantity ? row.receive_asset_quantity : ''}</td>
          <td>${row.fee_asset_symbol}</td><td>${row.fee_asset_quantity ? row.fee_asset_quantity : ''}</td>
@@ -851,10 +851,6 @@
     renderTaxPage();
 
     // Helpers
-    function getLocalDateString(unix_timestamp) {
-      const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
-      return new Date(unix_timestamp - tzoffset).toISOString().slice(0,10);
-    }
     function getLocalDateTimeString(unix_timestamp) {
       const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
       return new Date(unix_timestamp - tzoffset).toISOString().slice(0,19);

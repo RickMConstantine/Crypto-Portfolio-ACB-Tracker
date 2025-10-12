@@ -49,7 +49,11 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 
 3. **(Optional) Set up your CryptoCompare API key:**
    - Register at [cryptocompare.com](https://cryptocompare.com) for a free API key.
-   - Add your API key to the `API_KEY` variable in `src/db.ts`.
+   - Open `src/server.ts` and set the `COIN_DESK_API_KEY` const
+
+   **(Optional) Enable Finage:**
+   - Register at https://finage.co.uk and copy your API key.
+   - Open `src/server.ts` and set the `FINAGE_API_KEY` const
 
 ## Building & Running the Application
 
@@ -76,8 +80,8 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 - **Set Fiat Currency:**  
   Enter a fiat symbol (e.g., CAD, USD) and click "Set Fiat". This will set the base currency for price tracking.
 
-- **Add Blockchain Asset:**  
-  Enter the asset symbol (e.g., BTC, ETH) and click "Add Asset". The app will fetch asset info and price history.
+- **Add Blockchain Asset:**
+  Enter the asset symbol (e.g., BTC, ETH) and click "Add Asset". The app will fetch asset info and price history. If CoinDesk's historical coverage is insufficient, the Finage integration (if enabled) will supplement historical USD prices and convert them to the configured fiat.
 
 - **Add/Edit/Delete Price:**  
   Click "Add Price" to open a modal for adding a price. Click any row in the prices table to edit or delete a price. You can filter prices by asset, fiat, and date range using the controls above the prices table.
@@ -88,9 +92,8 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 ## API Endpoints
 
 ### Assets
-- `GET /api/assets` — List all assets
-- `GET /api/assets/:type` — List assets by type (`blockchain` or `fiat`)
-- `POST /api/asset-by-symbol-and-type` — Add asset by symbol and type
+- `GET /api/assets` — List all assets (supports filtering by `name`, `symbol`, `asset_type` as query params)
+- `POST /api/asset` — Add asset; will also insert price history when `asset_type = blockchain` and `symbol` provided
 - `DELETE /api/asset/:symbol` — Delete asset
 
 ### Prices
