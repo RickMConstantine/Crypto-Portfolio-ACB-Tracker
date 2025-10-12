@@ -1,10 +1,7 @@
 import { Database } from 'sqlite3';
 import { mkdir, unlink } from 'fs';
 import { dirname } from 'path';
-import { AssetType, Asset, Price, Transaction, TransactionType } from './types';
-
-// For fetching historical price data, create a free API key at https://cryptocompare.com
-const API_KEY = "";
+import { AssetType, Asset, Price, Transaction, InsertionType } from './types';
 
 //=======================
 // Database Init
@@ -29,6 +26,7 @@ export async function initDb(path: string): Promise<Database | Error> {
             symbol TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             asset_type TEXT NOT NULL,
+            launch_date INTEGER NOT NULL,
             logo_url TEXT
           );
           CREATE TABLE IF NOT EXISTS prices (
@@ -64,8 +62,17 @@ export async function initDb(path: string): Promise<Database | Error> {
           if (!db) {
             return reject(new Error('DB not initialized'));
           }
-          console.log('Successfully initialized tables.');
-          resolve(db);
+          db.exec(`ALTER TABLE assets ADD COLUMN launch_date INTEGER;`, (err) => {
+            // Swallow the error if the column already exists
+            // if (err) {
+            //   return reject(err);
+            // }
+            if (!db) {
+              return reject(new Error('DB not initialized'));
+            }
+            console.log('Successfully initialized tables.');
+            resolve(db);
+          });
         }
       );
     });
@@ -94,69 +101,8 @@ export async function destroyDb(path: string): Promise<void | Error> {
 //=======================
 // Assets
 //=======================
-export async function addAssetBySymbol(symbol: string, assetType: AssetType): Promise<Asset | Error> {
-  let assetAdded: any;
-  try {
-    if (!db) throw new Error('DB not initialized');
-    if (!symbol) throw new Error('Symbol is required');
-    if (!assetType) throw new Error('AssetType is required');
-    if (!(Object.values(AssetType)).includes(assetType)) throw new Error(`Invalid AssetType: ${assetType}`);
-
-    // Check if asset already registered
-    const currAsset = await getAssetBySymbol(symbol);
-    if (currAsset instanceof Error) throw currAsset;
-    if (!!currAsset) {
-      console.log(`Asset already exists for symbol: ${symbol}, skipping addition.`);
-      return currAsset;
-    }
-
-    // Get Asset Summary
-    // https://developers.coindesk.com/documentation/data-api/asset_v1_summary_list
-    const assetUrl = `https://data-api.coindesk.com/asset/v1/summary/list?asset_lookup_priority=SYMBOL&assets=${symbol}&assetType=${assetType}` + (API_KEY ? `&api_key=${API_KEY}` : "");
-    const assetResponse = await fetch(assetUrl);
-    const assetJson = await assetResponse.json();
-    if (assetJson.Err.message) {
-      throw new Error(`Invalid API response: ${assetJson.Err.message}`);
-    }
-    if (!assetJson.Data || !Array.isArray(assetJson.Data.LIST) || assetJson.Data.LIST.length !== 1) {
-      throw new Error(`Invalid API response: ${JSON.stringify(assetJson)}`);
-    }
-
-    const asset = assetJson.Data.LIST[0];
-    if ((assetType === AssetType.FIAT && asset.ASSET_TYPE !== AssetType.FIAT.toUpperCase()) ||
-        (assetType === AssetType.BLOCKCHAIN && asset.ASSET_TYPE !== AssetType.BLOCKCHAIN.toUpperCase() && asset.ASSET_TYPE !== 'TOKEN')) {
-      throw new Error(`Asset type mismatch: ${assetType.toUpperCase()} !== ${asset.ASSET_TYPE}`);
-    }
-
-    switch (assetType) {
-      case AssetType.FIAT:
-        // If the user adds a new fiat asset, delete all existing blockchain assets
-        // instead of refreshing entire price history
-        await deleteAllAssets();
-        assetAdded = await addAsset({name: asset.NAME, symbol: asset.SYMBOL, asset_type: assetType, logo_url: asset.LOGO_URL});
-        break;
-      case AssetType.BLOCKCHAIN:
-        // Populate price data for the new blockchain fiat pair
-        assetAdded = await addAsset({name: asset.NAME, symbol: asset.SYMBOL, asset_type: assetType, logo_url: asset.LOGO_URL});
-        await insertHistoricalPrices(assetAdded[0].symbol);
-        break;
-    }
-
-    if (!assetAdded || !assetAdded.length) {
-      throw new Error(`Failed to insert new ${assetType} asset: ${asset.NAME} (${asset.SYMBOL})`);
-    }
-    console.log(`Inserted new ${assetAdded[0].asset_type} asset: ${assetAdded[0].name} (${assetAdded[0].symbol}).`);
-
-    return assetAdded[0];
-  } catch (err) {
-    if (assetAdded && assetAdded.length) {
-      deleteAsset(assetAdded[0].symbol);
-    }
-    throw err;
-  }
-}
-
-export async function addAsset({name, symbol, asset_type, logo_url}: Asset): Promise<Asset[] | Error> {
+// Create
+export async function addAsset({name, symbol, asset_type, logo_url, launch_date}: Asset): Promise<Asset[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.serialize(() => {
@@ -170,8 +116,8 @@ export async function addAsset({name, symbol, asset_type, logo_url}: Asset): Pro
         });
       }
       db.all(
-        'INSERT INTO assets (symbol, name, asset_type, logo_url) VALUES (?, ?, ?, ?) RETURNING *',
-        [symbol, name, asset_type, logo_url ?? null],
+        'INSERT INTO assets (symbol, name, asset_type, launch_date, logo_url) VALUES (?, ?, ?, ?, ?) RETURNING *',
+        [symbol, name, asset_type, launch_date, logo_url ?? null],
         (err, rows) => {
           if (err) return reject(err);
           if (!rows.length) return;
@@ -188,9 +134,9 @@ export async function addAssets(assets: Asset[]): Promise<Asset[] | Error> {
     if (!db) return reject(new Error('DB not initialized'));
     if (!assets.length) return reject(new Error('No assets to add'));
 
-    const placeholders = assets.map(() => '(?, ?, ?, ?)').join(', ');
-    const values = assets.flatMap(a => [a.symbol, a.name, a.asset_type, a.logo_url ?? null]);
-    const sql = `INSERT INTO assets (symbol, name, asset_type, logo_url) VALUES ${placeholders} RETURNING *`;
+    const placeholders = assets.map(() => '(?, ?, ?, ?, ?)').join(', ');
+    const values = assets.flatMap(a => [a.symbol, a.name, a.asset_type, a.launch_date, a.logo_url ?? null]);
+    const sql = `INSERT INTO assets (symbol, name, asset_type, launch_date, logo_url) VALUES ${placeholders} RETURNING *`;
 
     db.all(sql, values, (err, rows) => {
       if (err) return reject(err);
@@ -200,33 +146,62 @@ export async function addAssets(assets: Asset[]): Promise<Asset[] | Error> {
   });
 }
 
-async function getAssetBySymbol(symbol: string): Promise<Asset | Error> {
-  return new Promise<any | Error>((resolve, reject) => {
-    if (!db) return reject(new Error('DB not initialized'));
-    db.get(
-      `SELECT * FROM assets WHERE UPPER(symbol) = UPPER(?)`,
-      [symbol],
-      (err, row) => {
-        if (err) return reject(err);
-        resolve(row);
-      }
-    );
-  });
-}
-
-export async function getAssets(asset_type?: AssetType): Promise<Asset[] | Error> {
+// Retrieve
+export async function getAssets(filters?: {
+  name?: string,
+  symbol?: string,
+  asset_type?: AssetType,
+}): Promise<Asset[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
-    let sql = 'SELECT * FROM assets';
-    if (asset_type) sql += ' WHERE asset_type = ?';
+    let sql = 'SELECT * FROM assets WHERE 1=1';
+    const params: any[] = [];
+    if (filters) {
+      if (filters.name) {
+        sql += ' AND name = ?';
+        params.push(filters.name);
+      }
+      if (filters.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(filters.symbol);
+      }
+      if (filters.asset_type) {
+        sql += ' AND asset_type = ?';
+        params.push(filters.asset_type);
+      }
+    }
     sql += ' ORDER BY asset_type DESC, name ASC';
-    db.all(sql, [asset_type], (err, rows) => {
+    db.all(sql, params, (err, rows) => {
       if (err) return reject(err);
       resolve(rows);
     });
   });
 }
 
+// Update
+export async function updateAsset(symbol: string, name: string, asset_type: AssetType, launch_date: number, logo_url: string): Promise<Asset[] | Error> {
+    return new Promise<any[] | Error>((resolve, reject) => {
+    if (!db) return reject(new Error('DB not initialized'));
+    db.all(
+      'UPDATE assets SET name = ?, asset_type = ?, launch_date = ?, logo_url = ? WHERE symbol = ? RETURNING *',
+      [name, asset_type, launch_date, logo_url, symbol],
+      (err, rows) => {
+        if (err) return reject(err);
+        if (!rows.length) return reject(new Error('Failed to update asset'));
+        console.log(
+          `Updated asset with 
+          symbol: ${(rows[0] as any).symbol}, 
+          name: ${(rows[0] as any).name}, 
+          launch_date: ${(rows[0] as any).launch_date},
+          logo_url: ${(rows[0] as any).logo_url}`
+        );
+        resolve(rows);
+      }
+    );
+  });
+}
+
+// Delete
 export async function deleteAsset(symbol: string): Promise<Asset[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
@@ -267,6 +242,7 @@ export async function deleteAllAssets(): Promise<Asset[] | Error> {
 //=======================
 // Prices
 //=======================
+// Create
 export async function addPrice({unix_timestamp, price, asset_symbol, fiat_symbol}: Price): Promise<Price[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
@@ -283,7 +259,7 @@ export async function addPrice({unix_timestamp, price, asset_symbol, fiat_symbol
   });
 }
 
-export async function addPrices(prices: Price[]): Promise<Price[] | Error> {
+export async function addPrices(prices: Price[], insertionType: InsertionType = InsertionType.INSERT): Promise<Price[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     if (!prices.length) return reject(new Error('No prices to add'));
@@ -295,7 +271,11 @@ export async function addPrices(prices: Price[]): Promise<Price[] | Error> {
       p.asset_symbol,
       p.fiat_symbol
     ]);
-    const sql = `INSERT INTO prices (unix_timestamp, price, asset_symbol, fiat_symbol) VALUES ${placeholders} RETURNING *`;
+    let sql = `INSERT INTO prices (unix_timestamp, price, asset_symbol, fiat_symbol) VALUES ${placeholders} `;
+    if (insertionType === InsertionType.UPSERT) {
+      sql += `ON CONFLICT(unix_timestamp, asset_symbol, fiat_symbol) DO UPDATE SET price = excluded.price `;
+    }
+    sql += 'RETURNING *';
 
     db.all(sql, values, (err, rows) => {
       if (err) return reject(err);
@@ -306,6 +286,7 @@ export async function addPrices(prices: Price[]): Promise<Price[] | Error> {
   });
 }
 
+// Retrieve
 export async function getPrices(filters?: {
   asset_symbol?: string;
   fiat_symbol?: string;
@@ -348,6 +329,7 @@ export async function getPrices(filters?: {
   });
 }
 
+// Update
 export async function updatePrice({ unix_timestamp, asset_symbol, fiat_symbol, price }: Price): Promise<Price[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
@@ -370,6 +352,7 @@ export async function updatePrice({ unix_timestamp, asset_symbol, fiat_symbol, p
   });
 }
 
+// Delete
 export async function deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }: Omit<Price, 'price'>): Promise<Price[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
@@ -387,7 +370,7 @@ export async function deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }:
 }
 
 // Helper to get the latest price for an asset in fiat before or at a given timestamp
-async function getLatestPrice(asset_symbol: string, fiat_symbol: string, unix_timestamp: number): Promise<Price | Error> {
+export async function getLatestPrice(asset_symbol: string, fiat_symbol: string, unix_timestamp: number): Promise<Price | Error> {
   return new Promise<Price>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.get(
@@ -404,6 +387,7 @@ async function getLatestPrice(asset_symbol: string, fiat_symbol: string, unix_ti
 //=======================
 // Transactions
 //=======================
+// Create
 export async function addTransaction(
   {
     unix_timestamp,
@@ -458,6 +442,7 @@ export async function addTransaction(
   });
 }
 
+// Retrieve
 export async function getTransactions(filters?: {
   asset?: string;
   type?: string;
@@ -506,44 +491,7 @@ export async function getTransactions(filters?: {
   });
 }
 
-export async function getTransactionsByAssetSymbol(symbol: string): Promise<Transaction[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
-    if (!db) return reject(new Error('DB not initialized'));
-    db.all(
-      `
-      SELECT
-        t.id, t.unix_timestamp, t.type,
-        t.send_asset_symbol, t.send_asset_quantity,
-        t.receive_asset_symbol, t.receive_asset_quantity,
-        t.fee_asset_symbol, t.fee_asset_quantity,
-        t.is_income, t.notes
-      FROM transactions t
-      WHERE t.send_asset_symbol = ?
-         OR t.receive_asset_symbol = ?
-         OR t.fee_asset_symbol = ?
-      ORDER BY t.unix_timestamp ASC
-      `,
-      [symbol, symbol, symbol],
-      (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows);
-      }
-    );
-  });
-}
-
-export async function deleteTransaction(id: number): Promise<Transaction[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
-    if (!db) return reject(new Error('DB not initialized'));
-    db.all('DELETE FROM transactions WHERE id = ? RETURNING *', [id], (err, rows) => {
-      if (err) return reject(err);
-      if (!rows.length) return reject(new Error('Failed to delete transaction.'));
-      console.log(`Deleted transaction with id: ${id}`);
-      resolve(rows);
-    });
-  });
-}
-
+// Update
 export async function updateTransaction(id: number, data: Omit<Transaction, 'id'>): Promise<Transaction[] | Error> {
   return new Promise<any[] | Error>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
@@ -582,441 +530,15 @@ export async function updateTransaction(id: number, data: Omit<Transaction, 'id'
   });
 }
 
-//=======================
-// Helpers involving 
-// multiple tables
-//=======================
-export async function insertHistoricalPrices(symbol: string): Promise<void | Error> {
-  try {
-    if (!db) throw new Error('DB not initialized');
-    if (!symbol) throw new Error('Symbol is required');
-    const fiat = await getAssets(AssetType.FIAT);
-    if (fiat instanceof Error) throw fiat;
-    if (!fiat.length || !fiat[0].symbol) throw new Error('No fiat currency set. Please set a fiat currency before adding assets.');
-    const pricesUrl = `https://min-api.cryptocompare.com/data/v2/histoday?fsym=${symbol}&tsym=${fiat[0].symbol}&allData=true` + (API_KEY ? `&api_key=${API_KEY}` : "");
-    const pricesResponse = await fetch(pricesUrl);
-    const pricesJson = await pricesResponse.json();
-    if (pricesJson.Response !== "Success" || !pricesJson.Data || !Array.isArray(pricesJson.Data.Data)) {
-      throw new Error('Invalid API response');
-    }
-
-    const prices = pricesJson.Data.Data.map((entry: any) => ({
-      unix_timestamp: entry.time * 1000,
-      price: entry.close,
-      asset_symbol: symbol,
-      fiat_symbol: fiat[0].symbol
-    }));
-
-    if (prices.length === 0) {
-      throw new Error('No valid prices to insert');
-    }
-
-    await addPrices(prices);
-    console.log(`Inserted ${prices.length} historical prices for asset symbol: ${symbol} and fiat symbol: ${fiat[0].symbol}`);
-  } catch (err) {
-    throw err;
-  }
+// Delete
+export async function deleteTransaction(id: number): Promise<Transaction[] | Error> {
+  return new Promise<any[] | Error>((resolve, reject) => {
+    if (!db) return reject(new Error('DB not initialized'));
+    db.all('DELETE FROM transactions WHERE id = ? RETURNING *', [id], (err, rows) => {
+      if (err) return reject(err);
+      if (!rows.length) return reject(new Error('Failed to delete transaction.'));
+      console.log(`Deleted transaction with id: ${id}`);
+      resolve(rows);
+    });
+  });
 }
-
-// Helper to check for superficial loss
-// Assuming txs are sorted by unix_timestamp ascending
-function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset_symbol: string): boolean {
-  const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-  // Find repurchase within 30 days after disposition
-  for (let j = i + 1; j < txs.length; j++) {
-    const nextTx = txs[j];
-    if (nextTx.unix_timestamp > tx.unix_timestamp + THIRTY_DAYS) break;
-    if (
-      [TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(nextTx.type) &&
-      nextTx.receive_asset_symbol === asset_symbol &&
-      nextTx.receive_asset_quantity &&
-      nextTx.unix_timestamp > tx.unix_timestamp &&
-      nextTx.unix_timestamp <= tx.unix_timestamp + THIRTY_DAYS
-    ) {
-      return true;
-    }
-  }
-  // Also check for repurchase within 30 days before disposition
-  for (let j = i - 1; j >= 0; j--) {
-    const prevTx = txs[j];
-    if (prevTx.unix_timestamp < tx.unix_timestamp - THIRTY_DAYS) break;
-    if (
-      [TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(prevTx.type) &&
-      prevTx.receive_asset_symbol === asset_symbol &&
-      prevTx.receive_asset_quantity &&
-      prevTx.unix_timestamp < tx.unix_timestamp &&
-      prevTx.unix_timestamp >= tx.unix_timestamp - THIRTY_DAYS
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Calculate Adjusted Cost Base (ACB) for a given asset symbol.
- * Returns yearly totals: { [year]: { acb, totalUnits, avgCostPerUnit, ... } }
- */
-export async function calculateACB(asset_symbol: string): Promise<
-  Record<string, {
-    acb: number,
-    totalUnits: number,
-    avgCostPerUnit: number,
-    totalProceeds: number,
-    totalCosts: number,
-    totalOutlays: number,
-    totalGainLoss: number,
-    superficialLosses: number,
-    totalIncome: number,
-  }>
-> {
-  try {
-    if (!db) throw new Error('DB not initialized');
-    if (!asset_symbol) throw new Error('Asset symbol is required');
-
-    // Fetch fiat symbol (assume only one fiat asset)
-    const fiatAssets = await getAssets(AssetType.FIAT);
-    if (fiatAssets instanceof Error) throw fiatAssets;
-    if (!fiatAssets.length) throw new Error('No fiat asset set');
-    const fiat_symbol = fiatAssets[0].symbol;
-
-    // Fetch all transactions where asset is send, receive, or fee asset, ordered by date
-    const txs = await getTransactionsByAssetSymbol(asset_symbol);
-    if (txs instanceof Error) throw txs;
-
-    let acb = 0;
-    let totalUnits = 0;
-    let totalProceeds = 0;
-    let totalCosts = 0;
-    let totalOutlays = 0;
-    let totalGainLoss = 0;
-    let superficialLosses = 0;
-    let totalIncome = 0;
-    
-    // Per-year aggregates
-    const yearlyTotals: Record<string, any> = {};
-
-    for (let i = 0; i < txs.length; i++) {
-      const tx = txs[i];
-      const year = new Date(tx.unix_timestamp).getFullYear().toString();
-      if (!yearlyTotals[year]) {
-        yearlyTotals[year] = {
-          acb,
-          totalUnits,
-          totalProceeds: 0,
-          totalCosts: 0,
-          totalOutlays: 0,
-          totalGainLoss: 0,
-          superficialLosses: 0,
-          totalIncome: 0,
-        };
-      }
-
-      const priceCache: Record<string, Price> = {};
-      for (const symbol of [tx.send_asset_symbol, tx.receive_asset_symbol, tx.fee_asset_symbol]) {
-        if (!symbol || symbol === fiat_symbol || priceCache[symbol]) continue;
-        const assetprice = await getLatestPrice(symbol, fiat_symbol, tx.unix_timestamp);
-        if (assetprice instanceof Error) throw assetprice;
-        if (!assetprice || !assetprice.price) throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
-        priceCache[symbol] = assetprice;
-      };
-
-      // --- Sell/Send/Trade: Disposition ---
-      if ([TransactionType.SELL, TransactionType.SEND, TransactionType.TRADE].includes(tx.type) && tx.send_asset_symbol === asset_symbol) {
-        if (!tx.send_asset_quantity) {
-          throw new Error(`No valid send quantity found for transaction ${tx.id} of type ${tx.type}`);
-        };
-        if ((tx.type === TransactionType.SELL && tx.receive_asset_symbol !== fiat_symbol) ||
-            ((tx.type === TransactionType.SELL || tx.type === TransactionType.TRADE) && (!tx.receive_asset_symbol || !tx.receive_asset_quantity))) {
-          throw new Error(`No valid receive asset found for transaction ${tx.id} of type ${tx.type}`);
-        };
-        if (totalUnits === 0) {
-          throw new Error(`Cannot sell ${asset_symbol} because no units are available`);
-        }
-        // Proceeds
-        let proceeds = 0;
-        if (tx.type === TransactionType.SELL) {
-          proceeds = tx.receive_asset_quantity!;
-        } else if (tx.type === TransactionType.SEND) {
-          proceeds = tx.send_asset_quantity * priceCache[tx.send_asset_symbol].price; // FMV of disposed assets
-        } else if (tx.type === TransactionType.TRADE) {
-          proceeds = tx.receive_asset_quantity! * priceCache[tx.receive_asset_symbol!].price; // FMV of acquired assets
-        }
-        // Fees (Outlays) - Only applicable for SELL and SEND. TRADE will add fee back into ACB of the aqcquired asset.
-        let fee = 0;
-        if (tx.type !== TransactionType.TRADE) {
-          if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
-            fee = tx.fee_asset_quantity;
-          } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-            fee = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
-          }
-        }
-        // Costs + ACB
-        const cost = (tx.send_asset_quantity / totalUnits) * acb;
-        acb -= cost;
-        totalUnits -= tx.send_asset_quantity;
-        totalProceeds += proceeds; // 'Realizing' proceeds
-        totalCosts += cost; // 'Realizing' costs
-        totalOutlays += fee; // 'Realizing' outlays
-        yearlyTotals[year].acb -= cost;
-        yearlyTotals[year].totalUnits -= tx.send_asset_quantity;
-        yearlyTotals[year].totalProceeds += proceeds; // 'Realizing' proceeds
-        yearlyTotals[year].totalCosts += cost; // 'Realizing' costs
-        yearlyTotals[year].totalOutlays += fee; // 'Realizing' outlays
-        // Superficial loss check: if loss, check for repurchase within 30 days before/after
-        const gainLoss = proceeds - cost - fee;
-        if (gainLoss < 0 && isSuperficialLoss(tx, txs, i, asset_symbol)) {
-          superficialLosses += Math.abs(gainLoss);
-          acb += Math.abs(gainLoss); // Add back to ACB
-          totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
-          yearlyTotals[year].superficialLosses += Math.abs(gainLoss);
-          yearlyTotals[year].acb += Math.abs(gainLoss); // Add back to ACB
-          yearlyTotals[year].totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
-        } else {
-          totalGainLoss += gainLoss;
-          yearlyTotals[year].totalGainLoss += gainLoss;
-        }
-      }
-
-      // --- Buy/Receive/Trade: Acquisition ---
-      if ([TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(tx.type) && tx.receive_asset_symbol === asset_symbol) {
-        if (!tx.receive_asset_quantity) {
-          throw new Error(`No valid receive quantity found for transaction ${tx.id} of type ${tx.type}`);
-        };
-        if ((tx.type === TransactionType.BUY && tx.send_asset_symbol !== fiat_symbol) || 
-            (tx.type === TransactionType.BUY || tx.type === TransactionType.TRADE) && (!tx.send_asset_symbol || !tx.send_asset_quantity)) {
-          throw new Error(`No valid send asset found for transaction ${tx.id} of type ${tx.type}`);
-        };
-        // Costs
-        let cost = 0;
-        if (tx.type === TransactionType.BUY) {
-          cost = tx.send_asset_quantity!;
-        } else if (tx.type === TransactionType.RECEIVE && tx.is_income) {
-          cost = tx.receive_asset_quantity * priceCache[tx.receive_asset_symbol].price; // FMV of aqcuired assets
-          totalIncome += cost;
-          yearlyTotals[year].totalIncome += cost;
-        } else if (tx.type === TransactionType.TRADE) {
-          cost = tx.send_asset_quantity! * priceCache[tx.send_asset_symbol!].price; // FMV of disposed assets
-        }
-        // Fees
-        let fee = 0;
-        if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
-          fee = tx.fee_asset_quantity;
-        } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-          fee = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
-        }
-        // ACB
-        acb += cost + fee;
-        totalUnits += tx.receive_asset_quantity;
-        yearlyTotals[year].acb += cost + fee;
-        yearlyTotals[year].totalUnits += tx.receive_asset_quantity;
-      }
-
-      // --- Fees paid in the asset (not part of a send/receive): Disposition ---
-      if (
-        tx.fee_asset_symbol === asset_symbol &&
-        tx.fee_asset_quantity &&
-        tx.send_asset_symbol !== asset_symbol &&
-        tx.receive_asset_symbol !== asset_symbol
-      ) {
-        // Proceeds
-        let proceeds = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
-        // Costs + ACB
-        const cost = (tx.fee_asset_quantity / totalUnits) * acb;
-        acb -= cost;
-        totalUnits -= tx.fee_asset_quantity;
-        totalProceeds += proceeds; // 'Realizing' proceeds
-        totalCosts += cost; // 'Realizing' costs
-        yearlyTotals[year].acb -= cost;
-        yearlyTotals[year].totalUnits -= tx.fee_asset_quantity;
-        yearlyTotals[year].totalProceeds += proceeds; // 'Realizing' proceeds
-        yearlyTotals[year].totalCosts += cost; // 'Realizing' costs
-        const gainLoss = proceeds - cost;
-        // Superficial loss check: if loss, check for repurchase within 30 days before/after
-        if (gainLoss < 0 && isSuperficialLoss(tx, txs, i, asset_symbol)) {
-          superficialLosses += Math.abs(gainLoss);
-          acb += Math.abs(gainLoss); // Add back to ACB
-          totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
-          yearlyTotals[year].superficialLosses += Math.abs(gainLoss); 
-          yearlyTotals[year].acb += Math.abs(gainLoss); // Add back to ACB
-          yearlyTotals[year].totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
-        } else {
-          totalGainLoss += gainLoss;
-          yearlyTotals[year].totalGainLoss += gainLoss;
-        }
-      }
-    }
-    // Final totals
-    yearlyTotals['TOTALS'] = {
-      acb,
-      totalUnits,
-      totalProceeds,
-      totalCosts,
-      totalOutlays,
-      totalGainLoss,
-      superficialLosses,
-      totalIncome,
-    };
-    return yearlyTotals;
-  } catch (err) {
-    console.error(err);
-    throw err;
-  }
-}
-
-/**
- * Calculate Adjusted Cost Base (ACB) for all assets across all transactions.
- * Uses a nested Map for price caching: Map<asset_symbol, Map<fiat_symbol, Map<unix_timestamp, price>>>.
- * Returns an object mapping asset symbols to their ACB state.
- */
-// export async function calculateAllACBs(): Promise<Record<string, {
-//   acb: number,
-//   totalUnits: number,
-//   avgCostPerUnit: number,
-//   totalProceeds: number,
-//   totalCosts: number,
-//   totalOutlays: number,
-//   totalGainLoss: number
-// }> | Error> {
-//   try {
-//     if (!db) throw new Error('DB not initialized');
-//     // Fetch fiat symbol (assume only one fiat asset)
-//     const fiatAssets = await getAssets(AssetType.FIAT);
-//     if (fiatAssets instanceof Error) throw fiatAssets;
-//     if (!fiatAssets.length) throw new Error('No fiat asset set');
-//     const fiat_symbol = fiatAssets[0].symbol;
-
-//     // Fetch all transactions ordered by date
-//     const txs = await getTransactions();
-//     if (txs instanceof Error) throw txs;
-
-//     // Fetch all prices and cache them in a nested Map
-//     const allPrices = await getPrices();
-//     if (allPrices instanceof Error) throw allPrices;
-//     // Map<asset_symbol, Map<fiat_symbol, Map<unix_timestamp, price>>>
-//     const priceCache: Map<string, Map<string, Map<number, number>>> = new Map();
-//     for (const p of allPrices) {
-//       if (!priceCache.has(p.asset_symbol)) priceCache.set(p.asset_symbol, new Map());
-//       const fiatMap = priceCache.get(p.asset_symbol)!;
-//       if (!fiatMap.has(p.fiat_symbol)) fiatMap.set(p.fiat_symbol, new Map());
-//       fiatMap.get(p.fiat_symbol)!.set(p.unix_timestamp, p.price);
-//     }
-//     // Helper: get latest price for asset/fiat at or before timestamp
-//     function getCachedLatestPrice(asset_symbol: string, fiat_symbol: string, unix_timestamp: number): number | undefined {
-//       // Truncate to the beginning of the day (midnight UTC)
-//       const truncated_timestamp = unix_timestamp - (unix_timestamp % 86400000);
-//       return priceCache.get(asset_symbol)?.get(fiat_symbol)?.get(truncated_timestamp);
-//     }
-
-//     // State per asset
-//     const acbState: Record<string, {
-//       acb: number,
-//       totalUnits: number,
-//       avgCostPerUnit: number,
-//       totalProceeds: number,
-//       totalCosts: number,
-//       totalOutlays: number,
-//       totalGainLoss: number
-//     }> = {};
-
-//     // Helper to get or init state
-//     function getState(symbol: string) {
-//       if (!acbState[symbol]) {
-//         acbState[symbol] = {
-//           acb: 0,
-//           totalUnits: 0,
-//           avgCostPerUnit: 0,
-//           totalProceeds: 0,
-//           totalCosts: 0,
-//           totalOutlays: 0,
-//           totalGainLoss: 0
-//         };
-//       }
-//       return acbState[symbol];
-//     }
-
-//     for (const tx of txs) {
-//       // --- Handle send asset (disposition) ---
-//       if (tx.send_asset_symbol && tx.send_asset_quantity) {
-//         const state = getState(tx.send_asset_symbol);
-//         if (tx.send_asset_symbol !== fiat_symbol) {
-//           const sellPrice = getCachedLatestPrice(tx.send_asset_symbol, fiat_symbol, tx.unix_timestamp);
-//           if (!sellPrice) throw new Error(`No valid sell price for ${tx.send_asset_symbol} at tx ${tx.id}`);
-//           let proceeds = 0;
-//           if (tx.receive_asset_symbol === fiat_symbol && tx.receive_asset_quantity) {
-//             proceeds = tx.receive_asset_quantity;
-//           } else {
-//             proceeds = tx.send_asset_quantity * sellPrice;
-//           }
-//           let fee = 0;
-//           if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
-//             fee = tx.fee_asset_quantity;
-//           } else if (tx.fee_asset_symbol === tx.send_asset_symbol && tx.fee_asset_quantity) {
-//             fee = tx.fee_asset_quantity * sellPrice;
-//           } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-//             const feePrice = getCachedLatestPrice(tx.fee_asset_symbol, fiat_symbol, tx.unix_timestamp);
-//             if (!feePrice) throw new Error(`No valid fee price for ${tx.fee_asset_symbol} at tx ${tx.id}`);
-//             fee = tx.fee_asset_quantity * feePrice;
-//           }
-//           const cost = state.totalUnits > 0 ? (tx.send_asset_quantity / state.totalUnits) * state.acb : 0;
-//           state.acb -= cost;
-//           state.totalUnits -= tx.send_asset_quantity;
-//           state.totalProceeds += proceeds;
-//           state.totalCosts += cost;
-//           state.totalOutlays += fee;
-//           state.totalGainLoss += (proceeds - cost - fee);
-//         }
-//       }
-//       // --- Handle receive asset (acquisition) ---
-//       if (tx.receive_asset_symbol && tx.receive_asset_quantity) {
-//         const state = getState(tx.receive_asset_symbol);
-//         if (tx.receive_asset_symbol !== fiat_symbol) {
-//           const buyPrice = getCachedLatestPrice(tx.receive_asset_symbol, fiat_symbol, tx.unix_timestamp);
-//           if (!buyPrice) throw new Error(`No valid buy price for ${tx.receive_asset_symbol} at tx ${tx.id}`);
-//           let cost = 0;
-//           if (tx.send_asset_symbol === fiat_symbol && tx.send_asset_quantity) {
-//             cost = tx.send_asset_quantity;
-//           } else {
-//             cost = tx.receive_asset_quantity * buyPrice;
-//           }
-//           let fee = 0;
-//           if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
-//             fee = tx.fee_asset_quantity;
-//           } else if (tx.fee_asset_symbol === tx.receive_asset_symbol && tx.fee_asset_quantity) {
-//             fee = tx.fee_asset_quantity * buyPrice;
-//           } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-//             const feePrice = getCachedLatestPrice(tx.fee_asset_symbol, fiat_symbol, tx.unix_timestamp);
-//             if (!feePrice) throw new Error(`No valid fee price for ${tx.fee_asset_symbol} at tx ${tx.id}`);
-//             fee = tx.fee_asset_quantity * feePrice;
-//           }
-//           state.acb += cost + fee;
-//           state.totalUnits += tx.receive_asset_quantity;
-//         }
-//       }
-//       // --- Handle fee asset (outlay only, if not already handled above) ---
-//       if (
-//         tx.fee_asset_symbol &&
-//         tx.fee_asset_quantity &&
-//         tx.fee_asset_symbol !== fiat_symbol &&
-//         tx.fee_asset_symbol !== tx.send_asset_symbol &&
-//         tx.fee_asset_symbol !== tx.receive_asset_symbol
-//       ) {
-//         const state = getState(tx.fee_asset_symbol);
-//         const feePrice = getCachedLatestPrice(tx.fee_asset_symbol, fiat_symbol, tx.unix_timestamp);
-//         if (!feePrice) throw new Error(`No valid fee price for ${tx.fee_asset_symbol} at tx ${tx.id}`);
-//         const fee = tx.fee_asset_quantity * feePrice;
-//         state.acb -= fee;
-//         state.totalUnits -= tx.fee_asset_quantity;
-//         state.totalOutlays += fee;
-//       }
-//     }
-//     // Calculate avg cost per unit for each asset
-//     for (const symbol of Object.keys(acbState)) {
-//       const state = acbState[symbol];
-//       state.avgCostPerUnit = state.totalUnits > 0 ? state.acb / state.totalUnits : 0;
-//     }
-//     return acbState;
-//   } catch (err) {
-//     throw err;
-//   }
-// }

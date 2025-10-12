@@ -11,12 +11,28 @@ export enum TransactionType {
     RECEIVE = 'Receive'
 }
 
+export enum InsertionType {
+    INSERT,
+    UPSERT
+}
+
+// --- API Response Interfaces ---
+export interface FinageAggregatesResponse {
+    v: number; // Volume
+    o: number; // Open price
+    c: number; // Close price
+    h: number; // High price
+    l: number; // Low price
+    t: number; // Timestamp (in ms)
+}
+
 // --- SQL Table Interfaces ---
 
 export interface Asset {
     symbol: string;
     name: string;
     asset_type: AssetType;
+    launch_date: number;
     logo_url?: string;
 }
 

@@ -18,31 +18,32 @@ describe('DB functions', () => {
   });
 
   it('should add and get asset', async () => {
-    const newAsset = await addAsset({name: 'Bitcoin', symbol: 'BTC', asset_type: AssetType.BLOCKCHAIN, logo_url: 'https://example.com/btc-logo.png'});
+    const newAsset = await addAsset({name: 'Bitcoin', symbol: 'BTC', asset_type: AssetType.BLOCKCHAIN, launch_date: 1672531199000, logo_url: 'https://example.com/btc-logo.png'});
     if (newAsset instanceof Error) throw newAsset;
-    expect(newAsset.some((a: Asset) => a.symbol === 'BTC' && a.name === 'Bitcoin' && a.asset_type === AssetType.BLOCKCHAIN && a.logo_url === 'https://example.com/btc-logo.png')).toBeTruthy();
+    expect(newAsset.some((a: Asset) => a.symbol === 'BTC' && a.name === 'Bitcoin' && a.asset_type === AssetType.BLOCKCHAIN && a.launch_date === 1672531199000 && a.logo_url === 'https://example.com/btc-logo.png')).toBeTruthy();
     const assets = await getAssets();
     if (assets instanceof Error) throw assets;
-    expect(assets.some((a: Asset) => a.symbol === 'BTC' && a.name === 'Bitcoin' && a.asset_type === AssetType.BLOCKCHAIN && a.logo_url === 'https://example.com/btc-logo.png')).toBeTruthy();
+    expect(assets.some((a: Asset) => a.symbol === 'BTC' && a.name === 'Bitcoin' && a.asset_type === AssetType.BLOCKCHAIN && a.launch_date === 1672531199000 && a.logo_url === 'https://example.com/btc-logo.png')).toBeTruthy();
   });
 
   it('should add multiple assets with addAssets', async () => {
     const newAssets = await addAssets([
-      { name: 'Ethereum', symbol: 'ETH', asset_type: AssetType.BLOCKCHAIN, logo_url: 'https://example.com/eth-logo.png' },
-      { name: 'Litecoin', symbol: 'LTC', asset_type: AssetType.BLOCKCHAIN, logo_url: 'https://example.com/ltc-logo.png' }
+      { name: 'Ethereum', symbol: 'ETH', asset_type: AssetType.BLOCKCHAIN, launch_date: 1672531199000, logo_url: 'https://example.com/eth-logo.png' },
+      { name: 'Litecoin', symbol: 'LTC', asset_type: AssetType.BLOCKCHAIN, launch_date: 1672531199000, logo_url: 'https://example.com/ltc-logo.png' }
     ]);
     if (newAssets instanceof Error) throw newAssets;
-    expect(newAssets.some((a: Asset) => a.symbol === 'ETH' && a.name === 'Ethereum' && a.asset_type === AssetType.BLOCKCHAIN && a.logo_url === 'https://example.com/eth-logo.png')).toBeTruthy();
-    expect(newAssets.some((a: Asset) => a.symbol === 'LTC' && a.name === 'Litecoin' && a.asset_type === AssetType.BLOCKCHAIN && a.logo_url === 'https://example.com/ltc-logo.png')).toBeTruthy();
+    console.log('New Assets:', newAssets);
+    expect(newAssets.some((a: Asset) => a.symbol === 'ETH' && a.name === 'Ethereum' && a.asset_type === AssetType.BLOCKCHAIN && a.launch_date === 1672531199000 && a.logo_url === 'https://example.com/eth-logo.png')).toBeTruthy();
+    expect(newAssets.some((a: Asset) => a.symbol === 'LTC' && a.name === 'Litecoin' && a.asset_type === AssetType.BLOCKCHAIN && a.launch_date === 1672531199000 && a.logo_url === 'https://example.com/ltc-logo.png')).toBeTruthy();
     const assets = await getAssets();
     if (assets instanceof Error) throw assets;
-    expect(assets.some((a: Asset) => a.symbol === 'ETH' && a.name === 'Ethereum' && a.asset_type === AssetType.BLOCKCHAIN && a.logo_url === 'https://example.com/eth-logo.png')).toBeTruthy();
-    expect(assets.some((a: Asset) => a.symbol === 'LTC' && a.name === 'Litecoin' && a.asset_type === AssetType.BLOCKCHAIN && a.logo_url === 'https://example.com/ltc-logo.png')).toBeTruthy();
+    expect(assets.some((a: Asset) => a.symbol === 'ETH' && a.name === 'Ethereum' && a.asset_type === AssetType.BLOCKCHAIN && a.launch_date === 1672531199000 && a.logo_url === 'https://example.com/eth-logo.png')).toBeTruthy();
+    expect(assets.some((a: Asset) => a.symbol === 'LTC' && a.name === 'Litecoin' && a.asset_type === AssetType.BLOCKCHAIN && a.launch_date === 1672531199000 && a.logo_url === 'https://example.com/ltc-logo.png')).toBeTruthy();
   });
 
   it('should add and get price', async () => {
     // Add fiat asset first
-    await addAsset({name: 'Canadian Dollar', symbol: 'CAD', asset_type: AssetType.FIAT, logo_url: 'https://example.com/cad-logo.png'});
+    await addAsset({name: 'Canadian Dollar', symbol: 'CAD', asset_type: AssetType.FIAT, launch_date: 1672531199000, logo_url: 'https://example.com/cad-logo.png'});
     const assets = await getAssets();
     if (assets instanceof Error) throw assets;
     const asset_symbol = assets.find((a: Asset) => a.asset_type === AssetType.BLOCKCHAIN)?.symbol;
@@ -168,7 +169,7 @@ describe('DB functions', () => {
   });
 
   it('should delete an asset', async () => {
-    const newAsset = await addAsset({name: 'ToDelete', symbol: 'DEL', asset_type: AssetType.BLOCKCHAIN, logo_url: 'https://example.com/del-logo.png'});
+    const newAsset = await addAsset({name: 'ToDelete', symbol: 'DEL', asset_type: AssetType.BLOCKCHAIN, launch_date: 1672531199000, logo_url: 'https://example.com/del-logo.png'});
     if (newAsset instanceof Error) throw newAsset;
     const symbol = newAsset[0].symbol;
     const result = await deleteAsset(symbol);
