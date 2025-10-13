@@ -235,7 +235,6 @@
         setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], true);
         try {
           const resp = await fetch(`/api/asset/${encodeURIComponent(symbol)}/refresh-prices`, { method: 'POST' });
-          const data = await resp.json().catch(() => ({}));
           if (!resp.ok) {
             const msg = await resp.text();
             throw new Error(msg || 'Failed to delete asset');

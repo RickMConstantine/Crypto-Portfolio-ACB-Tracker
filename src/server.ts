@@ -188,17 +188,69 @@ app.delete('/api/price', async (req, res) => {
   res.json(await deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }));
 });
 
-// Prices Helper Functions
-async function insertHistoricalPrices(asset: Asset): Promise<void | Error> {
-  const prices = await insertHistoricalPricesUsingCoinDesk(asset.symbol);
-  if (prices instanceof Error) throw prices;
-  const oldestValidPrice = prices.find(p => p.price > 0);
-  if (oldestValidPrice && oldestValidPrice.unix_timestamp > asset.launch_date && FINAGE_API_KEY) {
-    const startDate = new Date(asset.launch_date);
-    const endDate = new Date(oldestValidPrice.unix_timestamp);
-    endDate.setDate(endDate.getDate() - 1); // Finage end date is inclusive, so subtract 1 day to avoid duplicate price
-    await insertHistoricalPricesUsingFinage(asset.symbol, startDate, endDate);
+// Refresh price history for an asset (calls insertHistoricalPrices)
+app.post('/api/asset/:symbol/refresh-prices', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    if (!symbol) return res.status(400).json({ error: 'Missing asset symbol' });
+
+    const assets = await getAssets({ symbol });
+    if (assets instanceof Error) return res.status(500).json({ error: assets.message });
+    if (!assets.length) return res.status(404).json({ error: 'Asset not found' });
+
+    const asset = assets[0];
+
+    // Optionally allow only blockchain assets to refresh historical prices:
+    if (asset.asset_type !== AssetType.BLOCKCHAIN) {
+      return res.status(400).json({ error: 'Price history refresh is intended for blockchain assets' });
+    }
+
+    // Call helper to insert historical prices (may be async and make external API calls)
+    try {
+      return res.json(await insertHistoricalPrices(asset));
+    } catch (err: any) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
   }
+});
+
+// Prices Helper Functions
+async function insertHistoricalPrices(asset: Asset): Promise<Price[] | Error> {
+  // Insert historical prices using CoinDesk (CryptoCompare)
+  let coinDeskPrices: Price[] | Error | null = null;
+  try {
+    coinDeskPrices = await insertHistoricalPricesUsingCoinDesk(asset.symbol);
+  } catch (err: any) {
+    console.error('CoinDesk price fetch error:', err);
+  }
+  // Try Finage as a fallback (if API key provided)
+  let finagePrices: Price[] | Error | null = null;
+  try {
+    if (FINAGE_API_KEY && asset.launch_date) {
+      const startDate = new Date(asset.launch_date);
+      let endDate = new Date();
+      if (coinDeskPrices && !(coinDeskPrices instanceof Error)) {
+        const oldestValidPrice = coinDeskPrices.find(p => p.price > 0);
+        if (oldestValidPrice && oldestValidPrice.unix_timestamp > asset.launch_date) {
+          endDate = new Date(oldestValidPrice.unix_timestamp);
+          endDate.setDate(endDate.getDate() - 1); // Finage end date is inclusive, so subtract 1 day to avoid duplicate price
+        }
+      }
+      finagePrices = await insertHistoricalPricesUsingFinage(asset.symbol, startDate, endDate);
+    }
+  } catch (err: any) {
+    console.error('Finage price fetch error:', err);
+  }
+  // If not prices were inserted, throw an error
+  if (coinDeskPrices instanceof Error && finagePrices === null || coinDeskPrices instanceof Error && finagePrices instanceof Error) {
+    throw new Error(`Failed to fetch historical prices for ${asset.symbol}. CoinDesk: ${coinDeskPrices.message}; ${(finagePrices instanceof Error) ? `Finage: ${finagePrices.message}` :''}`);
+  }
+  const results: Price[] = [];
+  if (coinDeskPrices && !(coinDeskPrices instanceof Error)) results.push(...coinDeskPrices);
+  if (finagePrices && !(finagePrices instanceof Error)) results.push(...finagePrices);
+  return results;
 }
 
 async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Price[] | Error> {
@@ -218,6 +270,7 @@ async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Pric
       urlSearchParams.append('api_key', COIN_DESK_API_KEY);
     }
     const pricesUrl = `https://min-api.cryptocompare.com/data/v2/histoday?${urlSearchParams.toString()}`;
+    console.log("CoinDesk Prices URL:", pricesUrl);
     const pricesResponse = await fetch(pricesUrl);
     const pricesJson = await pricesResponse.json();
     if (pricesJson.Response !== "Success" || !pricesJson.Data || !Array.isArray(pricesJson.Data.Data)) {
@@ -254,6 +307,7 @@ async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date
     urlSearchParams.append('limit', '30000');
     urlSearchParams.append('apikey', FINAGE_API_KEY);
     const usdPricesUrl = `https://api.finage.co.uk/agg/crypto/${symbol}USD/1/day/${startDate.toISOString().slice(0, 10)}/${endDate.toISOString().slice(0, 10)}?${urlSearchParams.toString()}`;
+    console.log("Finage Crypto->USD Prices URL:", usdPricesUrl);
     const usdPricesResponse = await fetch(usdPricesUrl);
     const usdPricesJson = await usdPricesResponse.json();
     if (!usdPricesJson.results || !Array.isArray(usdPricesJson.results)) {
@@ -263,6 +317,7 @@ async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date
 
     // https://finage.co.uk/docs/api/forex/forex-aggregates
     const fiatPricesUrl = `https://api.finage.co.uk/agg/forex/USD${fiat[0].symbol}/1/day/${startDate.toISOString().slice(0, 10)}/${endDate.toISOString().slice(0, 10)}?${urlSearchParams.toString()}`;
+    console.log("Finage USD->Fiat Prices URL:", fiatPricesUrl);
     const fiatPricesResponse = await fetch(fiatPricesUrl);
     const fiatPricesJson = await fiatPricesResponse.json();
     if (!fiatPricesJson.results || !Array.isArray(fiatPricesJson.results)) {
@@ -274,12 +329,12 @@ async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date
       return acc;
     }, {});
 
-    // Helper: find nearest prior fiatPricesMap entry for a timestamp
-    function findNearestFiatEntry(ts: number, map: Record<number, FinageAggregatesResponse>, lookbackDays = 6): FinageAggregatesResponse {
+    // Helper: find nearest prior fiatPricesMap entry within 1 week (since fiat markets may be closed on weekends/holidays)
+    function findNearestFiatEntry(ts: number, map: Record<number, FinageAggregatesResponse>, lookbackHours = 168): FinageAggregatesResponse {
       if (map[ts]) return map[ts];
-      for (let d = 1; d <= lookbackDays; d++) {
+      for (let h = 1; h <= lookbackHours; h++) {
         const candidate = new Date(ts);
-        candidate.setUTCDate(candidate.getUTCDate() - d);
+        candidate.setUTCHours(candidate.getUTCHours() - h);
         const candTs = candidate.getTime();
         if (map[candTs]) return map[candTs];
       }
@@ -290,7 +345,7 @@ async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date
     usdPricesArray.forEach((usdPrice: FinageAggregatesResponse) => {
       try {
         const ts = usdPrice.t;
-        const fiatEntry = findNearestFiatEntry(ts, fiatPricesMap, 6);
+        const fiatEntry = findNearestFiatEntry(ts, fiatPricesMap);
         finalPrices.push({
           unix_timestamp: usdPrice.t,
           price: usdPrice.c * fiatEntry.c,
@@ -717,35 +772,6 @@ async function calculateACB(asset_symbol: string): Promise<
 // ==============
 app.get('/api/transaction-types', (req, res) => {
   res.json(Object.values(TransactionType));
-});
-
-// Refresh price history for an asset (calls insertHistoricalPrices)
-app.post('/api/asset/:symbol/refresh-prices', async (req, res) => {
-  try {
-    const { symbol } = req.params;
-    if (!symbol) return res.status(400).json({ error: 'Missing asset symbol' });
-
-    const assets = await getAssets({ symbol });
-    if (assets instanceof Error) return res.status(500).json({ error: assets.message });
-    if (!assets.length) return res.status(404).json({ error: 'Asset not found' });
-
-    const asset = assets[0];
-
-    // Optionally allow only blockchain assets to refresh historical prices:
-    if (asset.asset_type !== AssetType.BLOCKCHAIN) {
-      return res.status(400).json({ error: 'Price history refresh is intended for blockchain assets' });
-    }
-
-    // Call helper to insert historical prices (may be async and make external API calls)
-    try {
-      await insertHistoricalPrices(asset);
-      return res.json({ success: true });
-    } catch (err: any) {
-      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-    }
-  } catch (err: any) {
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
-  }
 });
 
 // Initialize DB and start server
