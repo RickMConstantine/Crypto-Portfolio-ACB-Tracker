@@ -138,15 +138,8 @@ async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Pr
         // Populate price data for the new blockchain fiat pair
         assetAdded = await addAsset({name: asset.NAME, symbol: asset.SYMBOL, asset_type: assetType, launch_date: asset.LAUNCH_DATE*1000, logo_url: asset.LOGO_URL});
         if (assetAdded instanceof Error) throw assetAdded;
-        const prices = await insertHistoricalPricesUsingCoinDesk(assetAdded[0].symbol);
-        if (prices instanceof Error) throw prices;
-        const oldestValidPrice = prices.find(p => p.price > 0);
-        if (oldestValidPrice && oldestValidPrice.unix_timestamp > assetAdded[0].launch_date && FINAGE_API_KEY) {
-          const startDate = new Date(assetAdded[0].launch_date);
-          const endDate = new Date(oldestValidPrice.unix_timestamp);
-          endDate.setDate(endDate.getDate() - 1); // Finage end date is inclusive, so subtract 1 day to avoid duplicate price
-          await insertHistoricalPricesUsingFinage(assetAdded[0].symbol, startDate, endDate);
-        }
+        if (!assetAdded.length) throw new Error('Failed to add asset');
+        await insertHistoricalPrices(assetAdded[0]);
         break;
     }
 
@@ -196,6 +189,18 @@ app.delete('/api/price', async (req, res) => {
 });
 
 // Prices Helper Functions
+async function insertHistoricalPrices(asset: Asset): Promise<void | Error> {
+  const prices = await insertHistoricalPricesUsingCoinDesk(asset.symbol);
+  if (prices instanceof Error) throw prices;
+  const oldestValidPrice = prices.find(p => p.price > 0);
+  if (oldestValidPrice && oldestValidPrice.unix_timestamp > asset.launch_date && FINAGE_API_KEY) {
+    const startDate = new Date(asset.launch_date);
+    const endDate = new Date(oldestValidPrice.unix_timestamp);
+    endDate.setDate(endDate.getDate() - 1); // Finage end date is inclusive, so subtract 1 day to avoid duplicate price
+    await insertHistoricalPricesUsingFinage(asset.symbol, startDate, endDate);
+  }
+}
+
 async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Price[] | Error> {
   console.log("insertHistoricalPricesUsingCoinDesk", symbol);
   try {
@@ -230,13 +235,13 @@ async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Pric
       throw new Error('No valid prices to insert');
     }
 
-    return await addPrices(prices);
+    return await addPrices(prices, InsertionType.UPSERT);
   } catch (err) {
     throw err;
   }
 }
 
-async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date, endDate: Date): Promise<void | Error> {
+async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date, endDate: Date): Promise<Price[] | Error> {
   console.log("insertHistoricalPricesUsingFinage", symbol, startDate, endDate);
   try {
     if (!symbol) throw new Error('Symbol is required');
@@ -301,7 +306,7 @@ async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date
       throw new Error('No valid prices to insert');
     }
 
-    await addPrices(finalPrices, InsertionType.UPSERT);
+    return await addPrices(finalPrices, InsertionType.UPSERT);
   } catch (err) {
     throw err;
   }
@@ -712,6 +717,35 @@ async function calculateACB(asset_symbol: string): Promise<
 // ==============
 app.get('/api/transaction-types', (req, res) => {
   res.json(Object.values(TransactionType));
+});
+
+// Refresh price history for an asset (calls insertHistoricalPrices)
+app.post('/api/asset/:symbol/refresh-prices', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    if (!symbol) return res.status(400).json({ error: 'Missing asset symbol' });
+
+    const assets = await getAssets({ symbol });
+    if (assets instanceof Error) return res.status(500).json({ error: assets.message });
+    if (!assets.length) return res.status(404).json({ error: 'Asset not found' });
+
+    const asset = assets[0];
+
+    // Optionally allow only blockchain assets to refresh historical prices:
+    if (asset.asset_type !== AssetType.BLOCKCHAIN) {
+      return res.status(400).json({ error: 'Price history refresh is intended for blockchain assets' });
+    }
+
+    // Call helper to insert historical prices (may be async and make external API calls)
+    try {
+      await insertHistoricalPrices(asset);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+  }
 });
 
 // Initialize DB and start server

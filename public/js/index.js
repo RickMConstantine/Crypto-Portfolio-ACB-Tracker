@@ -135,8 +135,9 @@
       const saveBtn = document.getElementById('save-asset-btn');
       const cancelBtn = document.getElementById('cancel-edit-asset-modal');
       const deleteBtn = document.getElementById('delete-asset-btn');
+      const refreshBtn = document.getElementById('refresh-prices-btn');
       form.reset();
-      setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn], false);
+      setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
       errorDiv.textContent = '';
       if (asset) {
         title.textContent = 'Edit Asset';
@@ -147,10 +148,12 @@
         logoInput.value = asset.logo_url;
         launchDateInput.value = asset.launch_date ? new Date(asset.launch_date).toISOString().slice(0,10) : '';
         deleteBtn.style.display = '';
+        refreshBtn.style.display = '';
       } else {
         title.textContent = 'Add Asset';
         symbolInput.disabled = false;
         deleteBtn.style.display = 'none';
+        refreshBtn.style.display = 'none';
       }
       modal.classList.add('active');
       cancelBtn.onclick = function() {
@@ -189,7 +192,7 @@
               })
             });
           }
-          setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn]);
+          setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], true);
           const response = await promise;
           if (!response.ok) {
             const msg = await response.text();
@@ -199,7 +202,7 @@
           renderBlockchainAssets();
           renderPrices();
         } catch (err) {
-          setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn], false);
+          setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
           errorDiv.textContent = err.message || 'Failed to save asset';
         }
       };
@@ -220,6 +223,28 @@
           renderPrices();
         } catch (err) {
           errorDiv.textContent = err.message || 'Failed to delete asset';
+        }
+      };
+      refreshBtn.onclick = async function () {
+        // Determine symbol: prefer current input value, fallback to passed asset
+        const symbol = (symbolInput && symbolInput.value) ? symbolInput.value.trim() : (asset && asset.symbol);
+        if (!symbol) {
+          alert('Asset symbol not found.');
+          return;
+        }
+        setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], true);
+        try {
+          const resp = await fetch(`/api/asset/${encodeURIComponent(symbol)}/refresh-prices`, { method: 'POST' });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            const msg = await resp.text();
+            throw new Error(msg || 'Failed to delete asset');
+          }
+          modal.classList.remove('active');
+          renderPrices();
+        } catch (err) {
+          setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
+          errorDiv.textContent = err.message || 'Error refreshing prices';
         }
       };
     }
