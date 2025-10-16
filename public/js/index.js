@@ -58,6 +58,7 @@
     function renderAssets() {
       renderBlockchainAssets();
       renderFiatCurrency();
+      populateAllAssetDropdowns();
     }
     renderAssets();
 
@@ -84,8 +85,7 @@
           const msg = await resp.text();
           throw new Error(msg || 'Failed to set fiat currency');
         }
-        renderBlockchainAssets();
-        renderFiatCurrency();
+        renderAssets();
         renderPrices();
         e.target.reset();
       } catch (err) {
@@ -199,7 +199,7 @@
             throw new Error(msg || 'Failed to save asset');
           }
           modal.classList.remove('active');
-          renderBlockchainAssets();
+          renderAssets();
           renderPrices();
         } catch (err) {
           setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
@@ -219,7 +219,7 @@
             throw new Error(msg || 'Failed to delete asset');
           }
           modal.classList.remove('active');
-          renderBlockchainAssets();
+          renderAssets();
           renderPrices();
         } catch (err) {
           errorDiv.textContent = err.message || 'Failed to delete asset';
@@ -273,10 +273,26 @@
       });
     }
 
+    function populateAllAssetDropdowns() {
+      populateAssetDropdowns([
+        document.getElementById('prices-filter-fiat')
+      ], 'fiat');
+      populateAssetDropdowns([
+        document.getElementById('prices-filter-asset'),
+        document.getElementById('edit-price-asset-symbol')
+      ], 'blockchain');
+      populateAssetDropdowns([
+        document.getElementById('transactions-filter-asset'),
+        document.getElementById('edit-send-asset-select'),
+        document.getElementById('edit-receive-asset-select'),
+        document.getElementById('edit-fee-asset-select')
+      ]);
+    }
+
     //=======================
     // Prices Page
     //=======================
-    function renderPrices(filters = {}) {
+    function renderPrices() {
       // Setup filters
       const assetSelect = document.getElementById('prices-filter-asset');
       const fiatSelect = document.getElementById('prices-filter-fiat');
@@ -284,24 +300,21 @@
       const dateToInput = document.getElementById('prices-filter-date-to');
       const filterBtn = document.getElementById('prices-filter-btn');
       const resetBtn = document.getElementById('prices-filter-reset-btn');
+      const filters = {
+        asset_symbol: assetSelect.value,
+        fiat_symbol: fiatSelect.value,
+        date_from: dateFromInput.value ? Date.parse(dateFromInput.value) : undefined,
+        date_to: dateToInput.value ? Date.parse(dateToInput.value) + 24*60*60*1000 - 1 : undefined
+      };
       filterBtn.onclick = function() {
-        const filters = {
-          asset_symbol: assetSelect.value,
-          fiat_symbol: fiatSelect.value,
-          date_from: dateFromInput.value ? Date.parse(dateFromInput.value) : undefined,
-          date_to: dateToInput.value ? Date.parse(dateToInput.value) + 24*60*60*1000 - 1 : undefined
-        };
-        renderPrices(filters);
+        renderPrices();
       };
       resetBtn.onclick = function() {
         assetSelect.value = '';
         fiatSelect.value = '';
         dateFromInput.value = '';
         dateToInput.value = '';
-        renderPrices();
       };
-      populateAssetDropdowns([document.getElementById('prices-filter-asset')], 'blockchain');
-      populateAssetDropdowns([document.getElementById('prices-filter-fiat')], 'fiat');
       // Build query string from filters
       const params = new URLSearchParams();
       if (filters.asset_symbol) params.append('asset_symbol', filters.asset_symbol);
@@ -352,27 +365,24 @@
       const priceInput = document.getElementById('edit-price-value');
       const cancelBtn = document.getElementById('cancel-edit-price-modal');
       const deleteBtn = document.getElementById('delete-price-btn');
-      // Populate asset dropdown
-      populateAssetDropdowns([assetSelect], 'blockchain').then(() => {
-        // Set form values
-        form.reset();
-        if (price) {
-          title.textContent = 'Edit Price';
-          dateInput.value = new Date(price.unix_timestamp).toISOString().slice(0,10);
-          priceInput.value = price.price;
-          assetSelect.value = price.asset_symbol;
-          assetSelect.disabled = true;
-          dateInput.disabled = true;
-          deleteBtn.style.display = '';
-        } else {
-          title.textContent = 'Add Price';
-          assetSelect.disabled = false;
-          dateInput.disabled = false;
-          deleteBtn.style.display = 'none';
-        }
-        errorDiv.textContent = '';
-        modal.classList.add('active');
-      });
+      // Set form values
+      form.reset();
+      if (price) {
+        title.textContent = 'Edit Price';
+        dateInput.value = new Date(price.unix_timestamp).toISOString().slice(0,10);
+        priceInput.value = price.price;
+        assetSelect.value = price.asset_symbol;
+        assetSelect.disabled = true;
+        dateInput.disabled = true;
+        deleteBtn.style.display = '';
+      } else {
+        title.textContent = 'Add Price';
+        assetSelect.disabled = false;
+        dateInput.disabled = false;
+        deleteBtn.style.display = 'none';
+      }
+      errorDiv.textContent = '';
+      modal.classList.add('active');
       cancelBtn.onclick = function() {
         modal.classList.remove('active');
       };
@@ -459,7 +469,7 @@
     //=======================
     // Transactions Page
     //=======================
-    async function renderTransactions(filters = {}) {
+    async function renderTransactions() {
       // Setup filters
       const assetSelect = document.getElementById('transactions-filter-asset');
       const typeSelect = document.getElementById('transactions-filter-type');
@@ -467,24 +477,23 @@
       const dateToInput = document.getElementById('transactions-filter-date-to');
       const filterBtn = document.getElementById('transactions-filter-btn');
       const resetBtn = document.getElementById('transactions-filter-reset-btn');
-      filterBtn.onclick = function() {
-        const filters = {
-          asset: assetSelect.value,
-          type: typeSelect.value,
-          date_from: dateFromInput.value ? Date.parse(dateFromInput.value) : undefined,
-          date_to: dateToInput.value ? Date.parse(dateToInput.value) + 24*60*60*1000 - 1 : undefined // end of day
-        };
-        renderTransactions(filters);
+      const filters = {
+        asset: assetSelect.value,
+        type: typeSelect.value,
+        date_from: dateFromInput.value ? Date.parse(dateFromInput.value) : undefined,
+        date_to: dateToInput.value ? Date.parse(dateToInput.value) + 24*60*60*1000 - 1 : undefined // end of day
       };
-      resetBtn.onclick = function() {
+      filterBtn.onclick = function(e) {
+        e.preventDefault();
+        renderTransactions();
+      };
+      resetBtn.onclick = function(e) {
+        e.preventDefault();
         assetSelect.value = '';
         typeSelect.value = '';
         dateFromInput.value = '';
         dateToInput.value = '';
-        renderTransactions();
       };
-      populateAssetDropdowns([document.getElementById('transactions-filter-asset')]);
-      populateTransactionTypes(document.getElementById('transactions-filter-type'));
       // Build query string from filters
       const params = new URLSearchParams();
       if (filters.asset) params.append('asset', filters.asset);
@@ -609,31 +618,27 @@
         importContainer.style.display = '';
         deleteBtn.style.display = 'none';
         form.reset();
-        populateAddEditTransactionDropdowns().then(() => {
-          document.getElementById('edit-date').value = getLocalDateTimeString(Date.now());
-          document.getElementById('edit-transaction-error').textContent = '';
-          validateAddEditTransactionForm();
-        });
+        document.getElementById('edit-date').value = getLocalDateTimeString(Date.now());
+        document.getElementById('edit-transaction-error').textContent = '';
+        validateAddEditTransactionForm();
       } else {
         // Edit mode
         method = 'PUT';
         title.textContent = `Edit Transaction #${transaction.id}`;
         importContainer.style.display = 'none';
         deleteBtn.style.display = '';
-        populateAddEditTransactionDropdowns().then(() => {
-          document.getElementById('edit-date').value = transaction.unix_timestamp ? getLocalDateTimeString(transaction.unix_timestamp) : '';
-          document.getElementById('edit-type-select').value = transaction.type || '';
-          document.getElementById('edit-send-asset-select').value = transaction.send_asset_symbol || '';
-          document.getElementById('edit-send-asset-quantity').value = transaction.send_asset_quantity || '';
-          document.getElementById('edit-receive-asset-select').value = transaction.receive_asset_symbol || '';
-          document.getElementById('edit-receive-asset-quantity').value = transaction.receive_asset_quantity || '';
-          document.getElementById('edit-fee-asset-select').value = transaction.fee_asset_symbol || '';
-          document.getElementById('edit-fee-asset-quantity').value = transaction.fee_asset_quantity || '';
-          document.getElementById('edit-is-income').checked = !!transaction.is_income;
-          document.getElementById('edit-notes').value = transaction.notes || '';
-          document.getElementById('edit-transaction-error').textContent = '';
-          validateAddEditTransactionForm();
-        });
+        document.getElementById('edit-date').value = transaction.unix_timestamp ? getLocalDateTimeString(transaction.unix_timestamp) : '';
+        document.getElementById('edit-type-select').value = transaction.type || '';
+        document.getElementById('edit-send-asset-select').value = transaction.send_asset_symbol || '';
+        document.getElementById('edit-send-asset-quantity').value = transaction.send_asset_quantity || '';
+        document.getElementById('edit-receive-asset-select').value = transaction.receive_asset_symbol || '';
+        document.getElementById('edit-receive-asset-quantity').value = transaction.receive_asset_quantity || '';
+        document.getElementById('edit-fee-asset-select').value = transaction.fee_asset_symbol || '';
+        document.getElementById('edit-fee-asset-quantity').value = transaction.fee_asset_quantity || '';
+        document.getElementById('edit-is-income').checked = !!transaction.is_income;
+        document.getElementById('edit-notes').value = transaction.notes || '';
+        document.getElementById('edit-transaction-error').textContent = '';
+        validateAddEditTransactionForm();
       }
       // Validation
       [typeSelect, sendSelect, receiveSelect, feeAssetSelect].forEach(el => {
@@ -695,32 +700,26 @@
       // };
     }
 
-    async function populateAddEditTransactionDropdowns() {
-      // Populate type dropdown
-      await populateTransactionTypes(document.getElementById('edit-type-select'));
-      // Populate asset dropdowns using new function
-      await populateAssetDropdowns([
-        document.getElementById('edit-send-asset-select'),
-        document.getElementById('edit-receive-asset-select'),
-        document.getElementById('edit-fee-asset-select')
-      ]);
-    }
-
-    async function populateTransactionTypes(select) {
-      if (!select) return;
-      select.innerHTML = '<option value="">Select Type</option>';
-      try {
-        const types = await fetch('/api/transaction-types').then(r => r.json());
+    async function populateTransactionTypes(selects) {
+      const types = await fetch('/api/transaction-types').then(r => r.json());
+      selects.forEach(select => {
+        select.innerHTML = '<option value="">Select Asset</option>';
         types.forEach(type => {
           const opt = document.createElement('option');
           opt.value = type;
           opt.textContent = type;
           select.appendChild(opt);
         });
-      } catch (e) {
-        // fallback: do nothing
-      }
+      });
     }
+
+    function populateAllTransactionTypeDropdowns() {
+      populateTransactionTypes([
+        document.getElementById('transactions-filter-type'),
+        document.getElementById('edit-type-select')
+      ]);
+    }
+    populateAllTransactionTypeDropdowns();
 
     // Validation helper for transaction forms
     function validateTransactionFields(typeSelect, sendAssetSelect, sendQtyInput, receiveAssetSelect, receiveQtyInput, feeAssetSelect, feeQtyInput, submitBtn, errorDiv) {
