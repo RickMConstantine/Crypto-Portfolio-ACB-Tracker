@@ -38,8 +38,8 @@ const COIN_DESK_API_KEY = "";
 // for fetching historical price data, create a free API key at https://finage.co.uk
 const FINAGE_API_KEY = "";
 
-// Serve static files from 'public'
-app.use(express.static(path.join(__dirname, '../public')));
+// Serve static files from 'static'
+app.use(express.static(path.join(__dirname, 'static')));
 app.use(express.json());
 app.use(express.text({ type: 'text/csv', limit: '2mb' }));
 

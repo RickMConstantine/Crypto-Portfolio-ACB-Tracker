@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "dist/server.js",
   "scripts": {
-    "clean": "rm -rf dist",
-    "build": "tsc",
+    "clean": "rm dist/*.js && rm -rf dist/static",
+    "build": "tsc && cp src/static/index.html dist/static/index.html",
     "test": "jest",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts"

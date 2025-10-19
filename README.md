@@ -7,12 +7,13 @@ This application is a full-stack web app for tracking your cryptocurrency asset 
 ## Features
 
 - Add and manage fiat currencies and blockchain assets.
+- Add or import price history from CoinDesk & Finage apis or manually
+- Filter prices by asset, fiat, and date range.
 - Record transactions with support for buy, sell, trade, send, and receive types.
 - Filter transactions by asset, type, and date range.
-- Filter prices by asset, fiat, and date range.
 - Import transactions from CSV.
-- Track asset balances and prices over time.
 - View, edit, and delete assets, transactions, and prices.
+- Track asset balances and prices over time.
 - View ACB and superficial loss calculations per asset and per year.
 - All data is stored locally in a SQLite database.
 
@@ -20,7 +21,7 @@ This application is a full-stack web app for tracking your cryptocurrency asset 
 
 - **Backend:** Node.js, Express, SQLite3, TypeScript
 - **Frontend:** HTML, CSS, JavaScript (vanilla)
-- **APIs:** CryptoCompare (for price history), Coindesk (for asset info)
+- **APIs:** CryptoCompare/Coindesk, Finage
 
 ## Development Note
 
@@ -101,6 +102,7 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 - `POST /api/price` — Add price
 - `PUT /api/price` — Update price (by `unix_timestamp`, `asset_symbol`, `fiat_symbol`)
 - `DELETE /api/price` — Delete price (by `unix_timestamp`, `asset_symbol`, `fiat_symbol`)
+- `POST /api/asset/:symbol/refresh-prices` - Refresh prices history for the chosen asset from CoinDesk/Finage
 
 ### Transactions
 - `GET /api/transactions` — List all transactions (supports filtering by `asset`, `type`, `date_from`, `date_to` as query params)
