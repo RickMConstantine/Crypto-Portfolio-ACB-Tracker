@@ -509,11 +509,15 @@ async function validateTransaction(transaction: Transaction | TransactionInput) 
 app.get('/api/acb', async (req, res) => {
   try {
     const assets = await getAssets();
-    if (assets instanceof Error) return res.status(500).json({ error: assets.message });
+    if (assets instanceof Error) throw assets.message;
     const results: Record<string, any> = {};
     for (const asset of assets) {
       if (asset.asset_type === AssetType.FIAT) continue;
-      results[asset.symbol] = await calculateACB(asset.symbol) ;
+      try {
+        results[asset.symbol] = await calculateACB(asset.symbol);
+      } catch (err: any) {
+        results[asset.symbol] = { error: err.message ?? 'Cannot calculate ACB' }
+      }
     }
     res.json(results);
   } catch (err: any) {
@@ -747,6 +751,10 @@ async function calculateACB(asset_symbol: string): Promise<
           totalGainLoss += gainLoss;
           yearlyTotals[year].totalGainLoss += gainLoss;
         }
+      }
+      if (acb < 0 || totalUnits < 0 || totalCosts < 0 || totalOutlays < 0 || totalIncome < 0) {
+        console.log(acb, totalUnits, totalCosts, totalOutlays, totalIncome, tx);
+        throw new Error(`Something went negative when it shouldn't have for symbol ${asset_symbol}, check the server logs.`);
       }
     }
     // Final totals

@@ -781,6 +781,9 @@ async function renderTaxPage(): Promise<void> {
     }
     // Asset-level ACB table
     acbTbody.innerHTML = Object.entries(acbData).map(([symbol, data]) => {
+      if (data.error) {
+        return `<tr><td colspan="9">${symbol} encountered error: ${data.error}</td></tr>`;
+      }
       const totals = data['TOTALS'] || {};
       // Build yearly breakdown table rows (excluding TOTALS)
       const yearRows = Object.entries(data)
