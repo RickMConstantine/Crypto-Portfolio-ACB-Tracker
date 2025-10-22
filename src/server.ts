@@ -1,3 +1,4 @@
+import fs from 'fs'
 import express from 'express';
 import path from 'path';
 import {
@@ -446,6 +447,15 @@ app.get('/api/transactions', async (req, res) => {
     date_from: date_from ? Number(date_from) : undefined,
     date_to: date_to ? Number(date_to) : undefined
   }));
+});
+
+app.get('/api/download-transactions-csv', (req, res) => {
+  const csvPath = path.resolve(__dirname, '../', 'transactions.csv');
+  if (fs.existsSync(csvPath)) {
+    res.download(csvPath, 'transactions.csv');
+  } else {
+    res.status(404).send('CSV file not found');
+  }
 });
 
 // Update

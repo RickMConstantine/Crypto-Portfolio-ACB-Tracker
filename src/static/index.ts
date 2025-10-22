@@ -541,6 +541,11 @@ renderTransactions();
   showAddEditTransactionModal();
 };
 
+// Download csv
+(document.getElementById('download-csv-btn') as HTMLButtonElement).onclick = function() {
+  window.location.href = '/transactions.csv';
+};
+
 (document.getElementById('import-transactions-btn') as HTMLButtonElement).onclick = async function() {
   const fileInput = document.getElementById('import-transactions-file') as HTMLInputElement;
   const status = document.getElementById('import-transactions-status') as HTMLElement;
