@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+
 export enum AssetType {
     BLOCKCHAIN = 'blockchain',
     FIAT = 'fiat'
@@ -62,10 +64,20 @@ export interface Transaction extends TransactionInput {
     id: number;
 }
 
-export interface AcbData {
+export interface AcbDataDecimal {
+    acb: Decimal;
+    totalUnits: Decimal;
+    totalProceeds: Decimal;
+    totalCosts: Decimal;
+    totalOutlays: Decimal;
+    totalGainLoss: Decimal;
+    superficialLosses: Decimal;
+    totalIncome: Decimal;
+}
+
+export interface AcbDataNumber {
     acb: number;
     totalUnits: number;
-    avgCostPerUnit: number;
     totalProceeds: number;
     totalCosts: number;
     totalOutlays: number;

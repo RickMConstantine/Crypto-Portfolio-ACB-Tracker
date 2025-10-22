@@ -10,6 +10,7 @@
     "dev": "ts-node src/server.ts"
   },
   "dependencies": {
+    "decimal.js": "^10.6.0",
     "express": "^5.1.0",
     "papaparse": "^5.5.3",
     "sqlite3": "^5.1.7",

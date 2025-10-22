@@ -19,6 +19,8 @@ import {
   deleteTransaction,
 } from './db';
 import { 
+  AcbDataDecimal,
+  AcbDataNumber,
   Asset,
   AssetType,
   FinageAggregatesResponse,
@@ -29,6 +31,7 @@ import {
   TransactionType
 } from './types';
 import Papa from 'papaparse';
+import Decimal from 'decimal.js';
 
 const app = express();
 const PORT = 3000;
@@ -510,7 +513,7 @@ app.get('/api/acb', async (req, res) => {
   try {
     const assets = await getAssets();
     if (assets instanceof Error) throw assets.message;
-    const results: Record<string, any> = {};
+    const results: Record<string, Record<string, AcbDataNumber>> = {};
     for (const asset of assets) {
       if (asset.asset_type === AssetType.FIAT) continue;
       try {
@@ -565,19 +568,7 @@ function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset
  * Calculate Adjusted Cost Base (ACB) for a given asset symbol.
  * Returns yearly totals: { [year]: { acb, totalUnits, avgCostPerUnit, ... } }
  */
-async function calculateACB(asset_symbol: string): Promise<
-  Record<string, {
-    acb: number,
-    totalUnits: number,
-    avgCostPerUnit: number,
-    totalProceeds: number,
-    totalCosts: number,
-    totalOutlays: number,
-    totalGainLoss: number,
-    superficialLosses: number,
-    totalIncome: number,
-  }>
-> {
+async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDataNumber>> {
   try {
     if (!asset_symbol) throw new Error('Asset symbol is required');
 
@@ -591,31 +582,31 @@ async function calculateACB(asset_symbol: string): Promise<
     const txs = await getTransactions({ asset: asset_symbol });
     if (txs instanceof Error) throw txs;
 
-    let acb = 0;
-    let totalUnits = 0;
-    let totalProceeds = 0;
-    let totalCosts = 0;
-    let totalOutlays = 0;
-    let totalGainLoss = 0;
-    let superficialLosses = 0;
-    let totalIncome = 0;
+    let acb = new Decimal(0);
+    let totalUnits = new Decimal(0);
+    let totalProceeds = new Decimal(0);
+    let totalCosts = new Decimal(0);
+    let totalOutlays = new Decimal(0);
+    let totalGainLoss = new Decimal(0);
+    let superficialLosses = new Decimal(0);
+    let totalIncome = new Decimal(0);
     
     // Per-year aggregates
-    const yearlyTotals: Record<string, any> = {};
+    const yearlyTotals: Record<string, AcbDataDecimal> = {};
 
     for (let i = 0; i < txs.length; i++) {
       const tx = txs[i];
       const year = new Date(tx.unix_timestamp).getFullYear().toString();
       if (!yearlyTotals[year]) {
         yearlyTotals[year] = {
-          acb,
-          totalUnits,
-          totalProceeds: 0,
-          totalCosts: 0,
-          totalOutlays: 0,
-          totalGainLoss: 0,
-          superficialLosses: 0,
-          totalIncome: 0,
+          acb: acb,
+          totalUnits: totalUnits,
+          totalProceeds: new Decimal(0),
+          totalCosts: new Decimal(0),
+          totalOutlays: new Decimal(0),
+          totalGainLoss: new Decimal(0),
+          superficialLosses: new Decimal(0),
+          totalIncome: new Decimal(0),
         };
       }
 
@@ -637,51 +628,51 @@ async function calculateACB(asset_symbol: string): Promise<
             ((tx.type === TransactionType.SELL || tx.type === TransactionType.TRADE) && (!tx.receive_asset_symbol || !tx.receive_asset_quantity))) {
           throw new Error(`No valid receive asset found for transaction ${tx.id} of type ${tx.type}`);
         };
-        if (totalUnits === 0) {
+        if (totalUnits.equals(0)) {
           throw new Error(`Cannot sell ${asset_symbol} because no units are available`);
         }
         // Proceeds
-        let proceeds = 0;
+        let proceeds = new Decimal(0);
         if (tx.type === TransactionType.SELL) {
-          proceeds = tx.receive_asset_quantity!;
+          proceeds = new Decimal(tx.receive_asset_quantity!);
         } else if (tx.type === TransactionType.SEND) {
-          proceeds = tx.send_asset_quantity * priceCache[tx.send_asset_symbol].price; // FMV of disposed assets
+          proceeds = new Decimal(tx.send_asset_quantity).times(priceCache[tx.send_asset_symbol].price);
         } else if (tx.type === TransactionType.TRADE) {
-          proceeds = tx.receive_asset_quantity! * priceCache[tx.receive_asset_symbol!].price; // FMV of acquired assets
+          proceeds = new Decimal(tx.receive_asset_quantity!).times(priceCache[tx.receive_asset_symbol!].price);
         }
         // Fees (Outlays) - Only applicable for SELL and SEND. TRADE will add fee back into ACB of the aqcquired asset.
-        let fee = 0;
+        let fee = new Decimal(0);
         if (tx.type !== TransactionType.TRADE) {
           if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
-            fee = tx.fee_asset_quantity;
+            fee = new Decimal(tx.fee_asset_quantity);
           } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-            fee = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
+            fee = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price);
           }
         }
         // Costs + ACB
-        const cost = (tx.send_asset_quantity / totalUnits) * acb;
-        acb -= cost;
-        totalUnits -= tx.send_asset_quantity;
-        totalProceeds += proceeds; // 'Realizing' proceeds
-        totalCosts += cost; // 'Realizing' costs
-        totalOutlays += fee; // 'Realizing' outlays
-        yearlyTotals[year].acb -= cost;
-        yearlyTotals[year].totalUnits -= tx.send_asset_quantity;
-        yearlyTotals[year].totalProceeds += proceeds; // 'Realizing' proceeds
-        yearlyTotals[year].totalCosts += cost; // 'Realizing' costs
-        yearlyTotals[year].totalOutlays += fee; // 'Realizing' outlays
+        const cost = new Decimal(tx.send_asset_quantity).div(totalUnits).times(acb);
+        acb = acb.minus(cost);
+        totalUnits = totalUnits.minus(tx.send_asset_quantity);
+        totalProceeds = totalProceeds.plus(proceeds); // 'Realizing' proceeds
+        totalCosts = totalCosts.plus(cost); // 'Realizing' costs
+        totalOutlays = totalOutlays.plus(fee); // 'Realizing' outlays
+        yearlyTotals[year].acb = yearlyTotals[year].acb.minus(cost);
+        yearlyTotals[year].totalUnits = yearlyTotals[year].totalUnits.minus(tx.send_asset_quantity);
+        yearlyTotals[year].totalProceeds = yearlyTotals[year].totalProceeds.plus(proceeds); // 'Realizing' proceeds
+        yearlyTotals[year].totalCosts = yearlyTotals[year].totalCosts.plus(cost); // 'Realizing' costs
+        yearlyTotals[year].totalOutlays = yearlyTotals[year].totalOutlays.plus(fee); // 'Realizing' outlays
         // Superficial loss check: if loss, check for repurchase within 30 days before/after
-        const gainLoss = proceeds - cost - fee;
-        if (gainLoss < 0 && isSuperficialLoss(tx, txs, i, asset_symbol)) {
-          superficialLosses += Math.abs(gainLoss);
-          acb += Math.abs(gainLoss); // Add back to ACB
-          totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
-          yearlyTotals[year].superficialLosses += Math.abs(gainLoss);
-          yearlyTotals[year].acb += Math.abs(gainLoss); // Add back to ACB
-          yearlyTotals[year].totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
+        const gainLoss = proceeds.minus(cost).minus(fee);
+        if (gainLoss.isNegative() && isSuperficialLoss(tx, txs, i, asset_symbol)) {
+          superficialLosses = superficialLosses.plus(gainLoss.abs());
+          acb = acb.plus(gainLoss.abs()); // Add back to ACB
+          totalCosts = totalCosts.minus(gainLoss.abs()); // Remove from 'Realized' costs
+          yearlyTotals[year].superficialLosses = yearlyTotals[year].superficialLosses.plus(gainLoss.abs());
+          yearlyTotals[year].acb = yearlyTotals[year].acb.plus(gainLoss.abs()); // Add back to ACB
+          yearlyTotals[year].totalCosts = yearlyTotals[year].totalCosts.minus(gainLoss.abs()); // Remove from 'Realized' costs
         } else {
-          totalGainLoss += gainLoss;
-          yearlyTotals[year].totalGainLoss += gainLoss;
+          totalGainLoss = totalGainLoss.plus(gainLoss);
+          yearlyTotals[year].totalGainLoss = yearlyTotals[year].totalGainLoss.plus(gainLoss);
         }
       }
 
@@ -695,28 +686,28 @@ async function calculateACB(asset_symbol: string): Promise<
           throw new Error(`No valid send asset found for transaction ${tx.id} of type ${tx.type}`);
         };
         // Costs
-        let cost = 0;
+        let cost = new Decimal(0);
         if (tx.type === TransactionType.BUY) {
-          cost = tx.send_asset_quantity!;
+          cost = new Decimal(tx.send_asset_quantity!);
         } else if (tx.type === TransactionType.RECEIVE && tx.is_income) {
-          cost = tx.receive_asset_quantity * priceCache[tx.receive_asset_symbol].price; // FMV of aqcuired assets
-          totalIncome += cost;
-          yearlyTotals[year].totalIncome += cost;
+          cost = new Decimal(tx.receive_asset_quantity).times(priceCache[tx.receive_asset_symbol].price);
+          totalIncome = totalIncome.plus(cost);
+          yearlyTotals[year].totalIncome = yearlyTotals[year].totalIncome.plus(cost);
         } else if (tx.type === TransactionType.TRADE) {
-          cost = tx.send_asset_quantity! * priceCache[tx.send_asset_symbol!].price; // FMV of disposed assets
+          cost = new Decimal(tx.send_asset_quantity!).times(priceCache[tx.send_asset_symbol!].price);
         }
         // Fees
-        let fee = 0;
+        let fee = new Decimal(0);
         if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
-          fee = tx.fee_asset_quantity;
+          fee = new Decimal(tx.fee_asset_quantity);
         } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-          fee = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
+          fee = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price);
         }
         // ACB
-        acb += cost + fee;
-        totalUnits += tx.receive_asset_quantity;
-        yearlyTotals[year].acb += cost + fee;
-        yearlyTotals[year].totalUnits += tx.receive_asset_quantity;
+        acb = acb.plus(cost).plus(fee);
+        totalUnits = totalUnits.plus(tx.receive_asset_quantity);
+        yearlyTotals[year].acb = yearlyTotals[year].acb.plus(cost).plus(fee);
+        yearlyTotals[year].totalUnits = yearlyTotals[year].totalUnits.plus(tx.receive_asset_quantity);
       }
 
       // --- Fees paid in the asset (not part of a send/receive): Disposition ---
@@ -727,48 +718,68 @@ async function calculateACB(asset_symbol: string): Promise<
         tx.receive_asset_symbol !== asset_symbol
       ) {
         // Proceeds
-        let proceeds = tx.fee_asset_quantity * priceCache[tx.fee_asset_symbol].price; // FMV of fee assets
+        let proceeds = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price); // FMV of fee assets
         // Costs + ACB
-        const cost = (tx.fee_asset_quantity / totalUnits) * acb;
-        acb -= cost;
-        totalUnits -= tx.fee_asset_quantity;
-        totalProceeds += proceeds; // 'Realizing' proceeds
-        totalCosts += cost; // 'Realizing' costs
-        yearlyTotals[year].acb -= cost;
-        yearlyTotals[year].totalUnits -= tx.fee_asset_quantity;
-        yearlyTotals[year].totalProceeds += proceeds; // 'Realizing' proceeds
-        yearlyTotals[year].totalCosts += cost; // 'Realizing' costs
-        const gainLoss = proceeds - cost;
+        const cost = new Decimal(tx.fee_asset_quantity).div(totalUnits).times(acb);
+        acb = acb.minus(cost);
+        totalUnits = totalUnits.minus(tx.fee_asset_quantity);
+        totalProceeds = totalProceeds.plus(proceeds); // 'Realizing' proceeds
+        totalCosts = totalCosts.plus(cost); // 'Realizing' costs
+        yearlyTotals[year].acb = yearlyTotals[year].acb.minus(cost);
+        yearlyTotals[year].totalUnits = yearlyTotals[year].totalUnits.minus(tx.fee_asset_quantity);
+        yearlyTotals[year].totalProceeds = yearlyTotals[year].totalProceeds.plus(proceeds); // 'Realizing' proceeds
+        yearlyTotals[year].totalCosts = yearlyTotals[year].totalCosts.plus(cost); // 'Realizing' costs
         // Superficial loss check: if loss, check for repurchase within 30 days before/after
-        if (gainLoss < 0 && isSuperficialLoss(tx, txs, i, asset_symbol)) {
-          superficialLosses += Math.abs(gainLoss);
-          acb += Math.abs(gainLoss); // Add back to ACB
-          totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
-          yearlyTotals[year].superficialLosses += Math.abs(gainLoss); 
-          yearlyTotals[year].acb += Math.abs(gainLoss); // Add back to ACB
-          yearlyTotals[year].totalCosts -= Math.abs(gainLoss); // Remove from 'Realized' costs
+        const gainLoss = proceeds.minus(cost);
+        if (gainLoss.isNegative() && isSuperficialLoss(tx, txs, i, asset_symbol)) {
+          superficialLosses = superficialLosses.plus(gainLoss.abs());
+          acb = acb.plus(gainLoss.abs()); // Add back to ACB
+          totalCosts = totalCosts.minus(gainLoss.abs()); // Remove from 'Realized' costs
+          yearlyTotals[year].superficialLosses = yearlyTotals[year].superficialLosses.plus(gainLoss.abs());
+          yearlyTotals[year].acb = yearlyTotals[year].acb.plus(gainLoss.abs()); // Add back to ACB
+          yearlyTotals[year].totalCosts = yearlyTotals[year].totalCosts.minus(gainLoss.abs()); // Remove from 'Realized' costs
         } else {
-          totalGainLoss += gainLoss;
-          yearlyTotals[year].totalGainLoss += gainLoss;
+          totalGainLoss = totalGainLoss.plus(gainLoss);
+          yearlyTotals[year].totalGainLoss = yearlyTotals[year].totalGainLoss.plus(gainLoss);
         }
       }
-      if (acb < 0 || totalUnits < 0 || totalCosts < 0 || totalOutlays < 0 || totalIncome < 0) {
+      if (
+        acb.isNegative() ||
+        totalUnits.isNegative() ||
+        totalCosts.isNegative() ||
+        totalOutlays.isNegative() ||
+        totalIncome.isNegative()
+      ) {
         console.log(acb, totalUnits, totalCosts, totalOutlays, totalIncome, tx);
-        throw new Error(`Something went negative when it shouldn't have for symbol ${asset_symbol}, check the server logs.`);
+        throw new Error(`Something went negative when it shouldn't have for symbol ${asset_symbol}. ACB: ${acb}, totalUnits: ${totalUnits}, totalCosts: ${totalCosts}, totalOutlays: ${totalOutlays}`);
       }
     }
-    // Final totals
-    yearlyTotals['TOTALS'] = {
-      acb,
-      totalUnits,
-      totalProceeds,
-      totalCosts,
-      totalOutlays,
-      totalGainLoss,
-      superficialLosses,
-      totalIncome,
+    // Finalize yearly totals
+    const response: Record<string, AcbDataNumber> = {};
+    Object.entries(yearlyTotals).forEach(([year, data]) => {
+      response[year] = {
+        acb: data.acb.toNumber(),
+        totalUnits: data.totalUnits.toNumber(),
+        totalProceeds: data.totalProceeds.toNumber(),
+        totalCosts: data.totalCosts.toNumber(),
+        totalOutlays: data.totalOutlays.toNumber(),
+        totalGainLoss: data.totalGainLoss.toNumber(),
+        superficialLosses: data.superficialLosses.toNumber(),
+        totalIncome: data.totalIncome.toNumber(),
+      }
+    });
+    // Finalize overall total
+    response['TOTALS'] = {
+      acb: acb.toNumber(),
+      totalUnits: totalUnits.toNumber(),
+      totalProceeds: totalProceeds.toNumber(),
+      totalCosts: totalCosts.toNumber(),
+      totalOutlays: totalOutlays.toNumber(),
+      totalGainLoss: totalGainLoss.toNumber(),
+      superficialLosses: superficialLosses.toNumber(),
+      totalIncome: totalIncome.toNumber(),
     };
-    return yearlyTotals;
+    return response;
   } catch (err) {
     console.error(err);
     throw err;
