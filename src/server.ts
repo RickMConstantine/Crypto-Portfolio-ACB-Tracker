@@ -391,7 +391,7 @@ app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '2m
   try {
     const csv = req.body;
     if (!csv) return res.status(400).json({ error: 'No CSV data received' });
-    const parsed = Papa.parse(csv, { header: true });
+    const parsed = Papa.parse(csv, { skipEmptyLines: true, header: true });
     if (parsed.errors.length) return res.status(400).json({ error: parsed.errors[0].message });
     const transactions: any[] = parsed.data;
     // Map and insert transactions
