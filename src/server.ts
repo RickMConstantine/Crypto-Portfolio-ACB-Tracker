@@ -487,11 +487,11 @@ async function validateTransaction(transaction: Transaction | TransactionInput) 
     }
   } else if (transaction.type === TransactionType.SEND) {
     if (!transaction.send_asset_symbol || !transaction.send_asset_quantity || transaction.receive_asset_symbol || transaction.receive_asset_quantity) {
-      throw new Error('Send asset/symbol and quantity are required for Send.');
+      throw new Error('*Only* send asset/symbol and quantity are required for Send.');
     }
   } else if (transaction.type === TransactionType.RECEIVE) {
     if (transaction.send_asset_symbol || transaction.send_asset_quantity || !transaction.receive_asset_symbol || !transaction.receive_asset_quantity) {
-      throw new Error('Receive asset/symbol and quantity are required for Receive.');
+      throw new Error('*Only* receive asset/symbol and quantity are required for Receive.');
     }
   }
 
@@ -539,8 +539,17 @@ app.get('/api/acb', async (req, res) => {
 });
 
 // ACB Helper Functions
-// Helper to check for superficial loss
-// Assuming txs are sorted by unix_timestamp ascending
+
+// Superficial Loss (as defined by CRA)
+// https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/personal-income/line-12700-capital-gains/capital-losses-deductions.html#toc7
+// A superficial loss can occur when you dispose of capital property  for a loss and both of the following conditions are met:
+// You, or a person affiliated with you, buys, or has a right to buy, the same or identical property (called "substituted property") during the period starting 30 calendar days before the sale and ending 30 calendar days after the sale
+// You, or a person affiliated with you, still owns, or has a right to buy, the substituted property 30 calendar days after the sale
+//
+// This function will identify if a property/asset has been purchased in the 30 calenders before/after the tx.
+// *** Assuming that:
+// - this tx has (already) been identified as a capital loss
+// - txs are sorted by unix_timestamp ascending
 function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset_symbol: string): boolean {
   const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
   // Find repurchase within 30 days after disposition
@@ -548,7 +557,7 @@ function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset
     const nextTx = txs[j];
     if (nextTx.unix_timestamp > tx.unix_timestamp + THIRTY_DAYS) break;
     if (
-      [TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(nextTx.type) &&
+      [TransactionType.BUY, TransactionType.TRADE].includes(nextTx.type) &&
       nextTx.receive_asset_symbol === asset_symbol &&
       nextTx.receive_asset_quantity &&
       nextTx.unix_timestamp > tx.unix_timestamp &&
@@ -562,7 +571,7 @@ function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset
     const prevTx = txs[j];
     if (prevTx.unix_timestamp < tx.unix_timestamp - THIRTY_DAYS) break;
     if (
-      [TransactionType.BUY, TransactionType.RECEIVE, TransactionType.TRADE].includes(prevTx.type) &&
+      [TransactionType.BUY, TransactionType.TRADE].includes(prevTx.type) &&
       prevTx.receive_asset_symbol === asset_symbol &&
       prevTx.receive_asset_quantity &&
       prevTx.unix_timestamp < tx.unix_timestamp &&
