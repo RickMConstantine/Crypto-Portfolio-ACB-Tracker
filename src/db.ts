@@ -170,7 +170,7 @@ export async function getAssets(filters?: {
         params.push(filters.asset_type);
       }
     }
-    sql += ' ORDER BY asset_type DESC, name ASC';
+    sql += ' ORDER BY asset_type DESC, symbol ASC';
     db.all(sql, params, (err, rows) => {
       if (err) return reject(err);
       resolve(rows);
