@@ -56,12 +56,8 @@ export async function initDb(path: string): Promise<Database | Error> {
           );
         `,
         (err) => {
-          if (err) {
-            return reject(err);
-          }
-          if (!db) {
-            return reject(new Error('DB not initialized'));
-          }
+          if (err) return reject(err);
+          if (!db) return reject(new Error('DB not initialized'));
           db.exec(`ALTER TABLE assets ADD COLUMN launch_date INTEGER;`, (err) => {
             // Swallow the error if the column already exists
             // if (err) {

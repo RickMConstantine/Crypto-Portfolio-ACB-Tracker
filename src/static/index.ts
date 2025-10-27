@@ -498,7 +498,7 @@ async function renderTransactions(): Promise<void> {
   if (filters.date_to) params.append('date_to', filters.date_to.toString());
   const url = '/api/transactions' + (params.toString() ? `?${params.toString()}` : '');
   await fetchAndRender(url, 'transactions-table', row =>
-    `<td>${row.id}</td><td>${getLocalDateTimeString(row.unix_timestamp)}</td><td>${row.type}</td>
+    `<td>${row.id}</td><td>${getDateTimeString(row.unix_timestamp, false)}Z</td><td>${row.type}</td>
       <td>${row.send_asset_symbol}</td><td>${row.send_asset_quantity ? row.send_asset_quantity : ''}</td>
       <td>${row.receive_asset_symbol}</td><td>${row.receive_asset_quantity ? row.receive_asset_quantity : ''}</td>
       <td>${row.fee_asset_symbol}</td><td>${row.fee_asset_quantity ? row.fee_asset_quantity : ''}</td>
@@ -510,7 +510,7 @@ async function renderTransactions(): Promise<void> {
       tr.onclick = async function () {
         let transaction = {
           id: Number(id),
-          unix_timestamp: new Date(tr.children[1].textContent || '').getTime(),
+          unix_timestamp: Date.parse(tr.children[1].textContent || ''),
           type: tr.children[2].textContent || '',
           send_asset_symbol: tr.children[3].textContent || '',
           send_asset_quantity: (tr.children[4].textContent !== '') ? Number(tr.children[4].textContent) : undefined,
@@ -620,7 +620,7 @@ function showAddEditTransactionModal(transaction?: Transaction) {
     importContainer.style.display = '';
     deleteBtn.style.display = 'none';
     form.reset();
-    (document.getElementById('edit-date') as HTMLInputElement).value = getLocalDateTimeString(Date.now());
+    (document.getElementById('edit-date') as HTMLInputElement).value = getDateTimeString(Date.now(), true);
     (document.getElementById('edit-transaction-error') as HTMLElement).textContent = '';
     validateAddEditTransactionForm();
   } else {
@@ -629,7 +629,7 @@ function showAddEditTransactionModal(transaction?: Transaction) {
     title.textContent = `Edit Transaction #${transaction.id}`;
     importContainer.style.display = 'none';
     deleteBtn.style.display = '';
-    (document.getElementById('edit-date') as HTMLInputElement).value = transaction.unix_timestamp ? getLocalDateTimeString(transaction.unix_timestamp) : '';
+    (document.getElementById('edit-date') as HTMLInputElement).value = transaction.unix_timestamp ? getDateTimeString(transaction.unix_timestamp, false) : '';
     (document.getElementById('edit-type-select') as HTMLSelectElement).value = transaction.type || '';
     (document.getElementById('edit-send-asset-select') as HTMLSelectElement).value = transaction.send_asset_symbol || '';
     (document.getElementById('edit-send-asset-quantity') as HTMLInputElement).value = String(transaction.send_asset_quantity) || '';
@@ -658,7 +658,7 @@ function showAddEditTransactionModal(transaction?: Transaction) {
         method: method!,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          unix_timestamp: Date.parse(fd.get('date') as string),
+          unix_timestamp: Date.parse(`${fd.get('date')}Z`),
           type: fd.get('type'),
           send_asset_symbol: fd.get('send_asset_symbol'),
           send_asset_quantity: Number(fd.get('send_asset_quantity')),
@@ -890,7 +890,7 @@ async function renderTaxPage(): Promise<void> {
 renderTaxPage();
 
 // Helpers
-function getLocalDateTimeString(unix_timestamp: number): string {
-  const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
+function getDateTimeString(unix_timestamp: number, localize: boolean): string {
+  const tzoffset = localize ? (new Date()).getTimezoneOffset() * 60000 : 0; //offset in milliseconds
   return new Date(unix_timestamp - tzoffset).toISOString().slice(0,19);
 }
