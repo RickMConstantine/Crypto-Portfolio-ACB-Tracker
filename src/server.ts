@@ -38,9 +38,11 @@ const app = express();
 const PORT = 3000;
 const DB_PATH = `${__dirname}/db/app_db.sqlite`;
 // For fetching historical price data, create a free API key at https://cryptocompare.com or https://data-api.coindesk.com
-const COIN_DESK_API_KEY = "";
+const COIN_DESK_API_KEY = process.env.COIN_DESK_API_KEY || "";
+console.log(`Coin Desk Api Key: ${COIN_DESK_API_KEY}`)
 // for fetching historical price data, create a free API key at https://finage.co.uk
-const FINAGE_API_KEY = "";
+const FINAGE_API_KEY = process.env.FINAGE_API_KEY || "";
+console.log(`Finage Api Key: ${FINAGE_API_KEY}\n`)
 
 // Serve static files from 'static'
 app.use(express.static(path.join(__dirname, 'static')));
