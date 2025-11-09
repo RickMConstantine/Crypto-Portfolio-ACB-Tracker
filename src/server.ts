@@ -581,7 +581,7 @@ app.get('/api/acb', async (req, res) => {
 
 // Superficial Loss (as defined by CRA)
 // https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/personal-income/line-12700-capital-gains/capital-losses-deductions.html#toc7
-// A superficial loss can occur when you dispose of capital property  for a loss and both of the following conditions are met:
+// A superficial loss can occur when you dispose of capital property for a loss and both of the following conditions are met:
 // You, or a person affiliated with you, buys, or has a right to buy, the same or identical property (called "substituted property") during the period starting 30 calendar days before the sale and ending 30 calendar days after the sale
 // You, or a person affiliated with you, still owns, or has a right to buy, the substituted property 30 calendar days after the sale
 //
@@ -673,7 +673,6 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         if (!symbol || symbol === fiat_symbol || priceCache[symbol]) continue;
         const assetprice = await getLatestPrice(symbol, fiat_symbol, tx.unix_timestamp);
         if (assetprice instanceof Error) throw assetprice;
-        if (!assetprice || !assetprice.price) throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
         priceCache[symbol] = assetprice;
       };
 
@@ -694,17 +693,26 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         if (tx.type === TransactionType.SELL) {
           proceeds = new Decimal(tx.receive_asset_quantity!);
         } else if (tx.type === TransactionType.SEND) {
-          proceeds = new Decimal(tx.send_asset_quantity).times(priceCache[tx.send_asset_symbol].price);
+          if (!priceCache[tx.send_asset_symbol] || !priceCache[tx.send_asset_symbol].price) {
+            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          }
+          proceeds = new Decimal(tx.send_asset_quantity).times(priceCache[tx.send_asset_symbol].price); // FMV of Send Asset
         } else if (tx.type === TransactionType.TRADE) {
-          proceeds = new Decimal(tx.receive_asset_quantity!).times(priceCache[tx.receive_asset_symbol!].price);
+          if (!priceCache[tx.receive_asset_symbol!] || !priceCache[tx.receive_asset_symbol!].price) {
+            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          }
+          proceeds = new Decimal(tx.receive_asset_quantity!).times(priceCache[tx.receive_asset_symbol!].price); // FMV of Receive Asset
         }
-        // Fees (Outlays) - Only applicable for SELL and SEND. TRADE will add fee back into ACB of the aqcquired asset.
+        // Fees (Outlays) - Only applicable for SELL and SEND. BUY, RECEIVE, TRADE will instead include fee back into ACB of the acquired asset.
         let fee = new Decimal(0);
         if (tx.type !== TransactionType.TRADE) {
           if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
             fee = new Decimal(tx.fee_asset_quantity);
           } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-            fee = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price);
+            if (!priceCache[tx.fee_asset_symbol] || !priceCache[tx.fee_asset_symbol].price) {
+              throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+            }
+            fee = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price); // FMV of Fee Asset
           }
         }
         // Costs + ACB
@@ -748,18 +756,27 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         if (tx.type === TransactionType.BUY) {
           cost = new Decimal(tx.send_asset_quantity!);
         } else if (tx.type === TransactionType.RECEIVE && tx.is_income) {
-          cost = new Decimal(tx.receive_asset_quantity).times(priceCache[tx.receive_asset_symbol].price);
+          if (!priceCache[tx.receive_asset_symbol] || !priceCache[tx.receive_asset_symbol].price) {
+            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          }
+          cost = new Decimal(tx.receive_asset_quantity).times(priceCache[tx.receive_asset_symbol].price); // FMV of Receive Asset
           totalIncome = totalIncome.plus(cost);
           yearlyTotals[year].totalIncome = yearlyTotals[year].totalIncome.plus(cost);
         } else if (tx.type === TransactionType.TRADE) {
-          cost = new Decimal(tx.send_asset_quantity!).times(priceCache[tx.send_asset_symbol!].price);
+          if (!priceCache[tx.send_asset_symbol!] || !priceCache[tx.send_asset_symbol!].price) {
+            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          }
+          cost = new Decimal(tx.send_asset_quantity!).times(priceCache[tx.send_asset_symbol!].price); // FMV of Send Asset
         }
         // Fees
         let fee = new Decimal(0);
         if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
           fee = new Decimal(tx.fee_asset_quantity);
         } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-          fee = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price);
+          if (!priceCache[tx.fee_asset_symbol] || !priceCache[tx.fee_asset_symbol].price) {
+            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          }
+          fee = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price); // FMV of Fee Asset
         }
         // ACB
         acb = acb.plus(cost).plus(fee);
@@ -775,8 +792,11 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         tx.send_asset_symbol !== asset_symbol &&
         tx.receive_asset_symbol !== asset_symbol
       ) {
+        if (!priceCache[tx.fee_asset_symbol] || !priceCache[tx.fee_asset_symbol].price) {
+          throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+        }
         // Proceeds
-        let proceeds = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price); // FMV of fee assets
+        let proceeds = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price); // FMV of Fee Asset
         // Costs + ACB
         const cost = new Decimal(tx.fee_asset_quantity).div(totalUnits).times(acb);
         acb = acb.minus(cost);
