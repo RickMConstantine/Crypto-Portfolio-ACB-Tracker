@@ -24,6 +24,8 @@ import {
   AcbDataNumber,
   Asset,
   AssetType,
+  CCAssetSummaryResponse,
+  CCHistoDayResponse,
   FinageAggregatesResponse,
   InsertionType,
   Price,
@@ -34,9 +36,21 @@ import {
 import Papa from 'papaparse';
 import Decimal from 'decimal.js';
 
+// ==============
+// Server Config
+// ==============
 const app = express();
 const PORT = 3000;
 const DB_PATH = `${__dirname}/db/app_db.sqlite`;
+
+// Serve static files from 'static'
+app.use(express.static(path.join(__dirname, 'static')));
+app.use(express.json());
+app.use(express.text({ type: 'text/csv', limit: '2mb' }));
+
+// ==============
+// Api Keys
+// ==============
 // For fetching historical price data, create a free API key at https://cryptocompare.com or https://data-api.coindesk.com
 const COIN_DESK_API_KEY = process.env.COIN_DESK_API_KEY || "";
 console.log(`Coin Desk Api Key: ${COIN_DESK_API_KEY}`)
@@ -44,10 +58,14 @@ console.log(`Coin Desk Api Key: ${COIN_DESK_API_KEY}`)
 const FINAGE_API_KEY = process.env.FINAGE_API_KEY || "";
 console.log(`Finage Api Key: ${FINAGE_API_KEY}\n`)
 
-// Serve static files from 'static'
-app.use(express.static(path.join(__dirname, 'static')));
-app.use(express.json());
-app.use(express.text({ type: 'text/csv', limit: '2mb' }));
+// ==============
+// External Apis
+// ==============
+// https://developers.coindesk.com/documentation/data-api/asset_v1_summary_list
+const CC_ASSET_SUMMARY_URL = 'https://data-api.coindesk.com/asset/v1/summary/list';
+// https://developers.coindesk.com/documentation/data-api/index_cc_v1_historical_days
+const CC_HISTO_DAYS_URL = 'https://data-api.coindesk.com/index/cc/v1/historical/days';
+const CC_HISTO_DAYS_LIMIT = 5000;
 
 // ==============
 // Ping
@@ -108,7 +126,6 @@ async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Pr
     }
 
     // Get Asset Summary
-    // https://developers.coindesk.com/documentation/data-api/asset_v1_summary_list
     const urlSearchParams = new URLSearchParams();
     urlSearchParams.append('asset_lookup_priority', 'SYMBOL');
     urlSearchParams.append('assets', symbol);
@@ -116,17 +133,14 @@ async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Pr
     if (COIN_DESK_API_KEY) {
       urlSearchParams.append('api_key', COIN_DESK_API_KEY);
     }
-    const assetUrl = `https://data-api.coindesk.com/asset/v1/summary/list?${urlSearchParams.toString()}`;
-    const assetResponse = await fetch(assetUrl);
-    const assetJson = await assetResponse.json();
-    if (assetJson.Err.message) {
-      throw new Error(`Invalid API response: ${assetJson.Err.message}`);
+    const response = await (await fetch(`${CC_ASSET_SUMMARY_URL}?${urlSearchParams.toString()}`)).json() as CCAssetSummaryResponse;
+    if (response.Err.message) {
+      throw new Error(`Invalid API response: ${response.Err.message}`);
     }
-    if (!assetJson.Data || !Array.isArray(assetJson.Data.LIST) || assetJson.Data.LIST.length !== 1) {
-      throw new Error(`Invalid API response: ${JSON.stringify(assetJson)}`);
+    if (!response.Data || !Array.isArray(response.Data.LIST) || response.Data.LIST.length !== 1) {
+      throw new Error(`Invalid API response: ${JSON.stringify(response)}`);
     }
-
-    const asset = assetJson.Data.LIST[0];
+    const asset = response.Data.LIST[0];
     if ((assetType === AssetType.FIAT && asset.ASSET_TYPE !== AssetType.FIAT.toUpperCase()) ||
         (assetType === AssetType.BLOCKCHAIN && asset.ASSET_TYPE !== AssetType.BLOCKCHAIN.toUpperCase() && asset.ASSET_TYPE !== 'TOKEN')) {
       throw new Error(`Asset type mismatch: ${assetType.toUpperCase()} !== ${asset.ASSET_TYPE}`);
@@ -230,32 +244,33 @@ async function insertHistoricalPrices(asset: Asset): Promise<Price[] | Error> {
     coinDeskPrices = await insertHistoricalPricesUsingCoinDesk(asset.symbol);
   } catch (err: any) {
     console.error('CoinDesk price fetch error:', err);
+    throw err;
   }
   // Try Finage as a fallback (if API key provided)
-  let finagePrices: Price[] | Error | null = null;
-  try {
-    if (FINAGE_API_KEY && asset.launch_date) {
-      const startDate = new Date(asset.launch_date);
-      let endDate = new Date();
-      if (coinDeskPrices && !(coinDeskPrices instanceof Error)) {
-        const oldestValidPrice = coinDeskPrices.find(p => p.price > 0);
-        if (oldestValidPrice && oldestValidPrice.unix_timestamp > asset.launch_date) {
-          endDate = new Date(oldestValidPrice.unix_timestamp);
-          endDate.setDate(endDate.getDate() - 1); // Finage end date is inclusive, so subtract 1 day to avoid duplicate price
-        }
-      }
-      finagePrices = await insertHistoricalPricesUsingFinage(asset.symbol, startDate, endDate);
-    }
-  } catch (err: any) {
-    console.error('Finage price fetch error:', err);
-  }
+  // let finagePrices: Price[] | Error | null = null;
+  // try {
+  //   if (FINAGE_API_KEY && asset.launch_date) {
+  //     const startDate = new Date(asset.launch_date);
+  //     let endDate = new Date();
+  //     if (coinDeskPrices && !(coinDeskPrices instanceof Error)) {
+  //       const oldestValidPrice = coinDeskPrices.find(p => p.price > 0);
+  //       if (oldestValidPrice && oldestValidPrice.unix_timestamp > asset.launch_date) {
+  //         endDate = new Date(oldestValidPrice.unix_timestamp);
+  //         endDate.setDate(endDate.getDate() - 1); // Finage end date is inclusive, so subtract 1 day to avoid duplicate price
+  //       }
+  //     }
+  //     finagePrices = await insertHistoricalPricesUsingFinage(asset.symbol, startDate, endDate);
+  //   }
+  // } catch (err: any) {
+  //   console.error('Finage price fetch error:', err);
+  // }
   // If not prices were inserted, throw an error
-  if (coinDeskPrices instanceof Error && finagePrices === null || coinDeskPrices instanceof Error && finagePrices instanceof Error) {
-    throw new Error(`Failed to fetch historical prices for ${asset.symbol}. CoinDesk: ${coinDeskPrices.message}; ${(finagePrices instanceof Error) ? `Finage: ${finagePrices.message}` :''}`);
-  }
+  // if (coinDeskPrices instanceof Error && finagePrices === null || coinDeskPrices instanceof Error && finagePrices instanceof Error) {
+  //   throw new Error(`Failed to fetch historical prices for ${asset.symbol}. CoinDesk: ${coinDeskPrices.message}; ${(finagePrices instanceof Error) ? `Finage: ${finagePrices.message}` :''}`);
+  // }
   const results: Price[] = [];
   if (coinDeskPrices && !(coinDeskPrices instanceof Error)) results.push(...coinDeskPrices);
-  if (finagePrices && !(finagePrices instanceof Error)) results.push(...finagePrices);
+  // if (finagePrices && !(finagePrices instanceof Error)) results.push(...finagePrices);
   return results;
 }
 
@@ -267,34 +282,56 @@ async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Pric
     if (fiat instanceof Error) throw fiat;
     if (!fiat.length || !fiat[0].symbol) throw new Error('No fiat currency set. Please set a fiat currency before adding assets.');
     
-    // https://developers.coindesk.com/documentation/legacy/Historical/dataHistoday
-    const urlSearchParams = new URLSearchParams();
-    urlSearchParams.append('fsym', symbol);
-    urlSearchParams.append('tsym', fiat[0].symbol);
-    urlSearchParams.append('allData', 'true');
-    if (COIN_DESK_API_KEY) {
-      urlSearchParams.append('api_key', COIN_DESK_API_KEY);
-    }
-    const pricesUrl = `https://min-api.cryptocompare.com/data/v2/histoday?${urlSearchParams.toString()}`;
-    console.log("CoinDesk Prices URL:", pricesUrl);
-    const pricesResponse = await fetch(pricesUrl);
-    const pricesJson = await pricesResponse.json();
-    if (pricesJson.Response !== "Success" || !pricesJson.Data || !Array.isArray(pricesJson.Data.Data)) {
-      throw new Error('Invalid API response');
-    }
+    // Get Price History
+    let keepSearching = false;
+    let results: Price[] = [];
+    let minTs: number | undefined = undefined;
+    do {
+      const urlSearchParams = new URLSearchParams();
+      urlSearchParams.append('market', 'cadli');
+      urlSearchParams.append('instrument', `${symbol.toUpperCase()}-${fiat[0].symbol.toUpperCase()}`);
+      urlSearchParams.append('limit', String(CC_HISTO_DAYS_LIMIT));
+      urlSearchParams.append('aggregate', '1');
+      if (COIN_DESK_API_KEY) {
+        urlSearchParams.append('api_key', COIN_DESK_API_KEY);
+      }
+      if (minTs) {
+        urlSearchParams.append('to_ts', String(minTs-24*60*60))
+      }
+      const pricesUrl = `${CC_HISTO_DAYS_URL}?${urlSearchParams.toString()}`;
+      console.log("CoinDesk Prices URL:", pricesUrl);
+      const response = await (await fetch(pricesUrl)).json() as CCHistoDayResponse;
+      if (response.Err.message) {
+        throw new Error(`Invalid API response: ${response.Err.message}`);
+      }
+      if (!response.Data || !Array.isArray(response.Data)) {
+        throw new Error('Invalid API response');
+      }
 
-    const prices = pricesJson.Data.Data.map((entry: any) => ({
-      unix_timestamp: entry.time * 1000,
-      price: entry.close,
-      asset_symbol: symbol,
-      fiat_symbol: fiat[0].symbol
-    }));
+      const prices = response.Data.map((entry) => {
+        if (!minTs || entry.TIMESTAMP < minTs) minTs = entry.TIMESTAMP;
+        return {
+          unix_timestamp: entry.TIMESTAMP * 1000,
+          price: entry.CLOSE,
+          asset_symbol: symbol,
+          fiat_symbol: fiat[0].symbol
+        };
+      });
 
-    if (prices.length === 0) {
-      throw new Error('No valid prices to insert');
-    }
+      if (prices.length === 0) {
+        throw new Error('No valid prices to insert');
+      }
 
-    return await addPrices(prices, InsertionType.UPSERT);
+      const result = await addPrices(prices, InsertionType.UPSERT);
+      if (result instanceof Error) {
+        throw result;
+      }
+      results.push(...result);
+
+      keepSearching = response.Data.length === CC_HISTO_DAYS_LIMIT;
+    } while (keepSearching)
+      
+      return results;
   } catch (err) {
     throw err;
   }

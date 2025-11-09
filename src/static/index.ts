@@ -567,7 +567,7 @@ renderTransactions();
       const result = await resp.json();
       if (!resp.ok) throw new Error(result.error || 'Import failed');
       status.style.color = 'green';
-      status.textContent = 'Import successful!';
+      status.textContent = `Successfully imported ${result.inserted} txs`;
       renderTransactions();
     } catch (err: any) {
       status.style.color = '#d9534f';

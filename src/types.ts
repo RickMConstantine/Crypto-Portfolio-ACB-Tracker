@@ -19,6 +19,62 @@ export enum InsertionType {
 }
 
 // --- API Response Interfaces ---
+export interface CCAssetSummaryResponse {
+    Data: {
+        STATS?: {
+            PAGE: number,
+            PAGE_SIZE: number,
+            TOTAL_ASSETS: number
+        },
+        LIST?: {
+            TYPE: string,
+            ID: number,
+            SYMBOL: string,
+            ASSET_TYPE: string,
+            NAME: string,
+            LOGO_URL: string
+            LAUNCH_DATE: number
+        }
+    },
+    Err: {
+        message?: string 
+    },
+}
+
+export interface CCHistoDayResponse {
+    Data: {
+        UNIT?: string,
+        TIMESTAMP?: number,
+        TYPE?: string,
+        MARKET?: string,
+        INSTRUMENT?: string,
+        OPENv: number,
+        HIGH?: number,
+        LOW?: number,
+        CLOSE?: number,
+        FIRST_MESSAGE_TIMESTAMP?: number,
+        LAST_MESSAGE_TIMESTAMP?: number,
+        FIRST_MESSAGE_VALUE?: number,
+        HIGH_MESSAGE_VALUE?: number,
+        HIGH_MESSAGE_TIMESTAMP?: number,
+        LOW_MESSAGE_VALUE?: number,
+        LOW_MESSAGE_TIMESTAMP?: number,
+        LAST_MESSAGE_VALUE?: number,
+        TOTAL_INDEX_UPDATES?: number,
+        VOLUME?: number,
+        QUOTE_VOLUME?: number,
+        VOLUME_TOP_TIER?: number,
+        QUOTE_VOLUME_TOP_TIER?: number,
+        VOLUME_DIRECT?: number,
+        QUOTE_VOLUME_DIRECT?: number,
+        VOLUME_TOP_TIER_DIRECT?: number,
+        QUOTE_VOLUME_TOP_TIER_DIRECT?: number
+    }
+    Err: {
+        message?: string 
+    },
+}
+
 export interface FinageAggregatesResponse {
     v: number; // Volume
     o: number; // Open price

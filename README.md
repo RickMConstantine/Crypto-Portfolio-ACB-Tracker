@@ -7,7 +7,7 @@ This application is a full-stack web app for tracking your cryptocurrency asset 
 ## Features
 
 - Add and manage fiat currencies and blockchain assets.
-- Add or import price history from CoinDesk & Finage apis or manually
+- Add or import price history from CoinDesk apis or manually
 - Filter prices by asset, fiat, and date range.
 - Record transactions with support for buy, sell, trade, send, and receive types.
 - Filter transactions by asset, type, and date range.
@@ -21,7 +21,7 @@ This application is a full-stack web app for tracking your cryptocurrency asset 
 
 - **Backend:** Node.js, Express, SQLite3, TypeScript
 - **Frontend:** HTML, CSS, JavaScript (vanilla)
-- **APIs:** CryptoCompare/Coindesk, Finage
+- **APIs:** CryptoCompare/Coindesk
 
 ## Development Note
 
@@ -52,10 +52,6 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
    - Register at [cryptocompare.com](https://cryptocompare.com) for a free API key.
    - Open `src/server.ts` and set the `COIN_DESK_API_KEY` const
 
-   **(Optional) Enable Finage:**
-   - Register at https://finage.co.uk and copy your API key.
-   - Open `src/server.ts` and set the `FINAGE_API_KEY` const
-
 ## Building & Running the Application
 
 1. **Transpile TypeScript to JavaScript:**
@@ -82,7 +78,7 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
   Enter a fiat symbol (e.g., CAD, USD) and click "Set Fiat". This will set the base currency for price tracking.
 
 - **Add Blockchain Asset:**
-  Enter the asset symbol (e.g., BTC, ETH) and click "Add Asset". The app will fetch asset info and price history. If CoinDesk's historical coverage is insufficient, the Finage integration (if enabled) will supplement historical USD prices and convert them to the configured fiat.
+  Enter the asset symbol (e.g., BTC, ETH) and click "Add Asset". The app will fetch asset info and price history.
 
 - **Add/Edit/Delete Price:**  
   Click "Add Price" to open a modal for adding a price. Click any row in the prices table to edit or delete a price. You can filter prices by asset, fiat, and date range using the controls above the prices table.
@@ -102,7 +98,7 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 - `POST /api/price` — Add price
 - `PUT /api/price` — Update price (by `unix_timestamp`, `asset_symbol`, `fiat_symbol`)
 - `DELETE /api/price` — Delete price (by `unix_timestamp`, `asset_symbol`, `fiat_symbol`)
-- `POST /api/asset/:symbol/refresh-prices` - Refresh prices history for the chosen asset from CoinDesk/Finage
+- `POST /api/asset/:symbol/refresh-prices` - Refresh prices history for the chosen asset from CoinDesk
 
 ### Transactions
 - `GET /api/transactions` — List all transactions (supports filtering by `asset`, `type`, `date_from`, `date_to` as query params)
@@ -113,6 +109,8 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 
 ### Tax + ACB
 - `GET /api/acb` — Get proceeds, costs, outlays, ACB, and superficial loss for all assets (yearly and total breakdown)
+
+### Other (Misc)
 - `GET /api/transaction-types` — List all transaction types
 
 ## Examples Directory
