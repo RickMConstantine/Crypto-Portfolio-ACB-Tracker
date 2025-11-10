@@ -68,7 +68,7 @@ function renderAssets(): void {
 renderAssets();
 
 function renderFiatCurrency(): void {
-  fetchAndRender('/api/assets?asset_type=fiat', 'fiat-currency-table', row =>
+  fetchAndRender('/api/assets?asset_types=fiat', 'fiat-currency-table', row =>
     `<td>${row.symbol}</td><td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>`
   );
 }
@@ -99,11 +99,12 @@ function renderFiatCurrency(): void {
 };
 
 function renderBlockchainAssets(): Promise<void> {
-  return fetchAndRender('/api/assets?asset_type=blockchain', 'assets-table', row =>
+  return fetchAndRender('/api/assets?asset_types=blockchain,nft', 'assets-table', row =>
     `<td>${row.name}</td>
-      <td>${row.symbol}</td>
-      <td>${row.launch_date ? new Date(row.launch_date).toISOString().slice(0, 10) : ''}</td>
-      <td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>`
+     <td>${row.symbol}</td>
+     <td>${row.launch_date ? new Date(row.launch_date).toISOString().slice(0, 10) : ''}</td>
+     <td><img src="${row.logo_url}" alt="${row.symbol} logo" width="40" height="40"></td>
+     <td>${row.asset_type === 'nft' ? '✓' : ''}</td>`
   ).then(() => {
     const rows = document.querySelectorAll<HTMLTableRowElement>('#assets-table tbody tr');
     rows.forEach(tr => {
@@ -111,6 +112,7 @@ function renderBlockchainAssets(): Promise<void> {
       const symbol = tr.children[1].textContent || '';
       const launch_date = new Date(tr.children[2].textContent || '').getTime();
       const logo_url = (tr.children[3].querySelector('img') as HTMLImageElement).src;
+      const is_nft = tr.children[4].textContent === '✓';
       tr.onmouseenter = function () {
         tr.style.background = '#e6f7ff';
         tr.title = 'Click to edit asset';
@@ -120,7 +122,9 @@ function renderBlockchainAssets(): Promise<void> {
         tr.title = '';
       };
       tr.onclick = function () {
-        showAddEditAssetModal({ name, symbol, launch_date, logo_url } as Asset);
+        const asset_type = is_nft ? 'nft' : 'blockchain'
+        console.log(asset_type);
+        showAddEditAssetModal({ name, symbol, asset_type, launch_date, logo_url } as Asset);
       };
     });
   });
@@ -134,7 +138,7 @@ function showAddEditAssetModal(asset?: Asset) {
   const errorDiv = document.getElementById('edit-asset-error') as HTMLElement;
   const symbolInput = document.getElementById('edit-asset-symbol') as HTMLInputElement;
   const nameInput = document.getElementById('edit-asset-name') as HTMLInputElement;
-  // const typeInput = document.getElementById('edit-asset-type') as HTMLSelectElement;
+  const isNft = document.getElementById('edit-asset-is-nft') as HTMLInputElement;
   const logoInput = document.getElementById('edit-asset-logo-url') as HTMLInputElement;
   const launchDateInput = document.getElementById('edit-asset-launch-date') as HTMLInputElement;
   const saveBtn = document.getElementById('save-asset-btn') as HTMLButtonElement;
@@ -142,14 +146,14 @@ function showAddEditAssetModal(asset?: Asset) {
   const deleteBtn = document.getElementById('delete-asset-btn') as HTMLButtonElement;
   const refreshBtn = document.getElementById('refresh-prices-btn') as HTMLButtonElement;
   form.reset();
-  setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
+  setDisable([symbolInput, nameInput, isNft, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
   errorDiv.textContent = '';
   if (asset) {
     title.textContent = 'Edit Asset';
     symbolInput.disabled = true;
     symbolInput.value = asset.symbol || '';
     nameInput.value = asset.name || '';
-    // typeInput.value = asset.type;
+    isNft.checked = asset.asset_type === 'nft';
     logoInput.value = asset.logo_url || '';
     launchDateInput.value = asset.launch_date ? new Date(asset.launch_date).toISOString().slice(0,10) : '';
     deleteBtn.style.display = '';
@@ -170,6 +174,7 @@ function showAddEditAssetModal(asset?: Asset) {
     const fd = new FormData(form);
     try {
       let promise: Promise<Response>;
+      const asset_type = fd.get('is_nft') === 'on' ? 'nft' : 'blockchain';
       if (asset) {
         // Edit mode
         promise = fetch(`/api/asset/${asset.symbol}`, {
@@ -178,7 +183,7 @@ function showAddEditAssetModal(asset?: Asset) {
           body: JSON.stringify({
             symbol: fd.get('symbol'),
             name: fd.get('name'),
-            asset_type: 'blockchain',
+            asset_type,
             logo_url: fd.get('logo_url'),
             launch_date: fd.get('launch_date') ? new Date(fd.get('launch_date') as string).getTime() : null
           })
@@ -191,13 +196,13 @@ function showAddEditAssetModal(asset?: Asset) {
           body: JSON.stringify({
             symbol: fd.get('symbol'),
             name: fd.get('name'),
-            asset_type: 'blockchain',
+            asset_type,
             logo_url: fd.get('logo_url'),
             launch_date: fd.get('launch_date') ? new Date(fd.get('launch_date') as string).getTime() : null
           })
         });
       }
-      setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], true);
+      setDisable([symbolInput, nameInput, isNft, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], true);
       const response = await promise;
       if (!response.ok) {
         const msg = await response.text();
@@ -207,7 +212,7 @@ function showAddEditAssetModal(asset?: Asset) {
       renderAssets();
       renderPrices();
     } catch (err: any) {
-      setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
+      setDisable([symbolInput, nameInput, isNft, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
       errorDiv.textContent = err.message || 'Failed to save asset';
     }
   };
@@ -235,7 +240,7 @@ function showAddEditAssetModal(asset?: Asset) {
       alert('Asset symbol not found.');
       return;
     }
-    setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], true);
+    setDisable([symbolInput, nameInput, isNft, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], true);
     try {
       const resp = await fetch(`/api/asset/${encodeURIComponent(symbolInput.value.trim())}/refresh-prices`, { method: 'POST' });
       if (!resp.ok) {
@@ -245,7 +250,7 @@ function showAddEditAssetModal(asset?: Asset) {
       modal.classList.remove('active');
       renderPrices();
     } catch (err: any) {
-      setDisable([symbolInput, nameInput, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
+      setDisable([symbolInput, nameInput, isNft, logoInput, saveBtn, cancelBtn, deleteBtn, refreshBtn], false);
       errorDiv.textContent = err.message || 'Error refreshing prices';
     }
   };
@@ -263,7 +268,7 @@ function setDisable(selects: Array<HTMLInputElement | HTMLButtonElement>, disabl
 }
 
 async function populateAssetDropdowns(selects: Array<HTMLSelectElement | null>, assetType?: string) {
-  const res = await fetch(`/api/assets${assetType ? `?asset_type=${assetType}` : ''}`);
+  const res = await fetch(`/api/assets${assetType ? `?asset_types=${assetType}` : ''}`);
   const assets: any[] = await res.json();
   selects.forEach(select => {
     if (!select) return;
@@ -393,7 +398,7 @@ function showAddEditPriceModal(price?: Price) {
     e.preventDefault();
     errorDiv.textContent = '';
     const fd = new FormData(form);
-    const fiatRes = await fetch('/api/assets?asset_type=fiat');
+    const fiatRes = await fetch('/api/assets?asset_types=fiat');
     const fiat = await fiatRes.json();
     const fiat_symbol = fiat[0]?.symbol || '';
     try {
@@ -502,7 +507,7 @@ async function renderTransactions(): Promise<void> {
       <td>${row.send_asset_symbol}</td><td>${row.send_asset_quantity ? row.send_asset_quantity : ''}</td>
       <td>${row.receive_asset_symbol}</td><td>${row.receive_asset_quantity ? row.receive_asset_quantity : ''}</td>
       <td>${row.fee_asset_symbol}</td><td>${row.fee_asset_quantity ? row.fee_asset_quantity : ''}</td>
-      <td>${row.is_income ? 'true' : ''}</td><td>${row.notes ? row.notes : ''}</td>`
+      <td>${row.is_income ? '✓' : ''}</td><td>${row.notes ? row.notes : ''}</td>`
   ).then(() => {
     const rows = document.querySelectorAll<HTMLTableRowElement>('#transactions-table tbody tr');
     rows.forEach(tr => {
@@ -518,7 +523,7 @@ async function renderTransactions(): Promise<void> {
           receive_asset_quantity: (tr.children[6].textContent !== '') ? Number(tr.children[6].textContent) : undefined,
           fee_asset_symbol: tr.children[7].textContent || '',
           fee_asset_quantity: (tr.children[8].textContent !== '') ? Number(tr.children[8].textContent) : undefined,
-          is_income: tr.children[9].textContent === 'true',
+          is_income: tr.children[9].textContent === '✓',
           notes: tr.children[10].textContent || ''
         } as Transaction;
         showAddEditTransactionModal(transaction);

@@ -15,7 +15,6 @@ import {
   updatePrice,
   updateTransaction,
   deleteAsset,
-  deleteAllAssets,
   deletePrice,
   deleteTransaction,
 } from './db';
@@ -30,7 +29,6 @@ import {
   InsertionType,
   Price,
   Transaction,
-  TransactionInput,
   TransactionType
 } from './types';
 import Papa from 'papaparse';
@@ -89,11 +87,11 @@ app.post('/api/asset', async (req, res) => {
 
 // Retrieve
 app.get('/api/assets', async (req, res) => {
-  const { name, symbol, asset_type, logo_url } = req.query;
+  const { names, symbols, asset_types } = req.query;
   res.json(await getAssets({
-    name: name as string | undefined,
-    symbol: symbol as string | undefined,
-    asset_type: asset_type as AssetType | undefined,
+    names: names?.length ? (names as string).split(',') : [],
+    symbols: symbols?.length ? (symbols as string).split(',') : [],
+    asset_types: asset_types?.length ? (asset_types as string).split(',') as AssetType[] : []
   }));
 });
 
@@ -110,7 +108,14 @@ app.delete('/api/asset/:symbol', async (req, res) => {
 });
 
 // Assets Helper Functions
-async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Promise<Asset | Error> {
+async function getAsset(symbol: string): Promise<Asset> {
+  const asset = await getAssets({symbols: [ symbol ]});
+  console.log(asset);
+  if (!asset.length) throw new Error(`No asset found for symbol ${asset!}`);
+  return asset[0];
+}
+
+async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Promise<Asset> {
   let assetAdded: any;
   try {
     if (!symbol) throw new Error('Symbol is required');
@@ -118,7 +123,7 @@ async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Pr
     if (!(Object.values(AssetType)).includes(assetType)) throw new Error(`Invalid AssetType: ${assetType}`);
 
     // Check if asset already registered
-    const currAsset = await getAssets({ symbol });
+    const currAsset = await getAssets({ symbols: [ symbol ] });
     if (currAsset instanceof Error) throw currAsset;
     if (!!currAsset.length) {
       console.log(`Asset already exists for symbol: ${symbol}, skipping addition.`);
@@ -146,25 +151,15 @@ async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Pr
       throw new Error(`Asset type mismatch: ${assetType.toUpperCase()} !== ${asset.ASSET_TYPE}`);
     }
 
-    switch (assetType) {
-      case AssetType.FIAT:
-        // If the user adds a new fiat asset, delete all existing blockchain assets
-        // instead of refreshing entire price history
-        await deleteAllAssets();
-        assetAdded = await addAsset({name: asset.NAME, symbol: asset.SYMBOL, asset_type: assetType, launch_date: asset.LAUNCH_DATE*1000, logo_url: asset.LOGO_URL});
-        if (assetAdded instanceof Error) throw assetAdded;
-        break;
-      case AssetType.BLOCKCHAIN:
-        // Populate price data for the new blockchain fiat pair
-        assetAdded = await addAsset({name: asset.NAME, symbol: asset.SYMBOL, asset_type: assetType, launch_date: asset.LAUNCH_DATE*1000, logo_url: asset.LOGO_URL});
-        if (assetAdded instanceof Error) throw assetAdded;
-        if (!assetAdded.length) throw new Error('Failed to add asset');
-        await insertHistoricalPrices(assetAdded[0]);
-        break;
-    }
-
+    // Add asset to DB
+    assetAdded = await addAsset({name: asset.NAME, symbol: asset.SYMBOL, asset_type: assetType, launch_date: asset.LAUNCH_DATE*1000, logo_url: asset.LOGO_URL});
     if (!assetAdded || !assetAdded.length) {
       throw new Error(`Failed to insert new ${assetType} asset: ${asset.NAME} (${asset.SYMBOL})`);
+    }
+    
+    // Block chain assets also fetch price history
+    if (assetType === AssetType.BLOCKCHAIN) {
+      await insertHistoricalPrices(assetAdded[0]);
     }
 
     return assetAdded[0];
@@ -214,7 +209,7 @@ app.post('/api/asset/:symbol/refresh-prices', async (req, res) => {
     const { symbol } = req.params;
     if (!symbol) return res.status(400).json({ error: 'Missing asset symbol' });
 
-    const assets = await getAssets({ symbol });
+    const assets = await getAssets({ symbols: [ symbol ] });
     if (assets instanceof Error) return res.status(500).json({ error: assets.message });
     if (!assets.length) return res.status(404).json({ error: 'Asset not found' });
 
@@ -237,9 +232,9 @@ app.post('/api/asset/:symbol/refresh-prices', async (req, res) => {
 });
 
 // Prices Helper Functions
-async function insertHistoricalPrices(asset: Asset): Promise<Price[] | Error> {
+async function insertHistoricalPrices(asset: Asset): Promise<Price[]> {
   // Insert historical prices using CoinDesk (CryptoCompare)
-  let coinDeskPrices: Price[] | Error | null = null;
+  let coinDeskPrices: Price[] | null = null;
   try {
     coinDeskPrices = await insertHistoricalPricesUsingCoinDesk(asset.symbol);
   } catch (err: any) {
@@ -247,7 +242,7 @@ async function insertHistoricalPrices(asset: Asset): Promise<Price[] | Error> {
     throw err;
   }
   // Try Finage as a fallback (if API key provided)
-  // let finagePrices: Price[] | Error | null = null;
+  // let finagePrices: Price[] | null = null;
   // try {
   //   if (FINAGE_API_KEY && asset.launch_date) {
   //     const startDate = new Date(asset.launch_date);
@@ -274,11 +269,11 @@ async function insertHistoricalPrices(asset: Asset): Promise<Price[] | Error> {
   return results;
 }
 
-async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Price[] | Error> {
+async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Price[]> {
   console.log("insertHistoricalPricesUsingCoinDesk", symbol);
   try {
     if (!symbol) throw new Error('Symbol is required');
-    const fiat = await getAssets({ asset_type: AssetType.FIAT });
+    const fiat = await getAssets({ asset_types: [ AssetType.FIAT ] });
     if (fiat instanceof Error) throw fiat;
     if (!fiat.length || !fiat[0].symbol) throw new Error('No fiat currency set. Please set a fiat currency before adding assets.');
     
@@ -332,16 +327,16 @@ async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Pric
     } while (keepSearching)
       
       return results;
-  } catch (err) {
+  } catch (err: any) {
     throw err;
   }
 }
 
-async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date, endDate: Date): Promise<Price[] | Error> {
+async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date, endDate: Date): Promise<Price[]> {
   console.log("insertHistoricalPricesUsingFinage", symbol, startDate, endDate);
   try {
     if (!symbol) throw new Error('Symbol is required');
-    const fiat = await getAssets({ asset_type: AssetType.FIAT });
+    const fiat = await getAssets({ asset_types: [ AssetType.FIAT ] });
     if (fiat instanceof Error) throw fiat;
     if (!fiat.length || !fiat[0].symbol) throw new Error('No fiat currency set. Please set a fiat currency before adding assets.');
     
@@ -515,7 +510,7 @@ app.delete('/api/transaction/:id', async (req, res) => {
 });
 
 // Transaction Helper Functions
-async function validateTransaction(transaction: Transaction | TransactionInput) {
+async function validateTransaction(transaction: Transaction | Omit<Transaction, 'id'>) {
   if (!Object.values(TransactionType).includes(transaction.type)) {
     throw new Error(`Invalid transaction type. Allowed: ${Object.values(TransactionType).join(', ')}`);
   }
@@ -627,47 +622,49 @@ function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset
  * Returns yearly totals: { [year]: { acb, totalUnits, avgCostPerUnit, ... } }
  */
 async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDataNumber>> {
-  try {
-    if (!asset_symbol) throw new Error('Asset symbol is required');
+  if (!asset_symbol) throw new Error('Asset symbol is required');
 
-    // Fetch fiat symbol (assume only one fiat asset)
-    const fiatAssets = await getAssets({ asset_type: AssetType.FIAT });
-    if (fiatAssets instanceof Error) throw fiatAssets;
-    if (!fiatAssets.length) throw new Error('No fiat asset set');
-    const fiat_symbol = fiatAssets[0].symbol;
+  // Fetch asset
+  const asset = await getAsset(asset_symbol);
 
-    // Fetch all transactions where asset is send, receive, or fee asset, ordered by date
-    const txs = await getTransactions({ asset: asset_symbol });
-    if (txs instanceof Error) throw txs;
+  // Fetch fiat symbol (assume only one fiat asset)
+  const fiatAssets = await getAssets({ asset_types: [ AssetType.FIAT ] });
+  if (!fiatAssets.length) throw new Error('No fiat asset set');
+  const fiat_symbol = fiatAssets[0].symbol;
 
-    let acb = new Decimal(0);
-    let totalUnits = new Decimal(0);
-    let totalProceeds = new Decimal(0);
-    let totalCosts = new Decimal(0);
-    let totalOutlays = new Decimal(0);
-    let totalGainLoss = new Decimal(0);
-    let superficialLosses = new Decimal(0);
-    let totalIncome = new Decimal(0);
-    
-    // Per-year aggregates
-    const yearlyTotals: Record<string, AcbDataDecimal> = {};
+  // Fetch all transactions where asset is send, receive, or fee asset, ordered by date
+  const txs = await getTransactions({ asset: asset_symbol });
+  if (txs instanceof Error) throw txs;
 
-    for (let i = 0; i < txs.length; i++) {
-      const tx = txs[i];
-      const year = new Date(tx.unix_timestamp).getFullYear().toString();
-      if (!yearlyTotals[year]) {
-        yearlyTotals[year] = {
-          acb: acb,
-          totalUnits: totalUnits,
-          totalProceeds: new Decimal(0),
-          totalCosts: new Decimal(0),
-          totalOutlays: new Decimal(0),
-          totalGainLoss: new Decimal(0),
-          superficialLosses: new Decimal(0),
-          totalIncome: new Decimal(0),
-        };
-      }
+  let acb = new Decimal(0);
+  let totalUnits = new Decimal(0);
+  let totalProceeds = new Decimal(0);
+  let totalCosts = new Decimal(0);
+  let totalOutlays = new Decimal(0);
+  let totalGainLoss = new Decimal(0);
+  let superficialLosses = new Decimal(0);
+  let totalIncome = new Decimal(0);
+  
+  // Per-year aggregates
+  const yearlyTotals: Record<string, AcbDataDecimal> = {};
 
+  for (let i = 0; i < txs.length; i++) {
+    const tx = txs[i];
+    const year = new Date(tx.unix_timestamp).getFullYear().toString();
+    if (!yearlyTotals[year]) {
+      yearlyTotals[year] = {
+        acb: acb,
+        totalUnits: totalUnits,
+        totalProceeds: new Decimal(0),
+        totalCosts: new Decimal(0),
+        totalOutlays: new Decimal(0),
+        totalGainLoss: new Decimal(0),
+        superficialLosses: new Decimal(0),
+        totalIncome: new Decimal(0),
+      };
+    }
+
+    try {
       const priceCache: Record<string, Price> = {};
       for (const symbol of [tx.send_asset_symbol, tx.receive_asset_symbol, tx.fee_asset_symbol]) {
         if (!symbol || symbol === fiat_symbol || priceCache[symbol]) continue;
@@ -693,15 +690,18 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         if (tx.type === TransactionType.SELL) {
           proceeds = new Decimal(tx.receive_asset_quantity!);
         } else if (tx.type === TransactionType.SEND) {
-          if (!priceCache[tx.send_asset_symbol] || !priceCache[tx.send_asset_symbol].price) {
-            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          // Can't easily determine the FMV/floor of NFTs sent/gifted, hence just leave as 0
+          if (asset.asset_type === AssetType.BLOCKCHAIN) {
+            proceeds = new Decimal(tx.send_asset_quantity).times(getPrice(tx.send_asset_symbol, priceCache)); // FMV of Send Asset
           }
-          proceeds = new Decimal(tx.send_asset_quantity).times(priceCache[tx.send_asset_symbol].price); // FMV of Send Asset
         } else if (tx.type === TransactionType.TRADE) {
-          if (!priceCache[tx.receive_asset_symbol!] || !priceCache[tx.receive_asset_symbol!].price) {
-            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          // Can't easily determine FMV/floor of NFTs sent or received, handle accordingly
+          const receiveAsset = await getAsset(tx.receive_asset_symbol!);
+          if (receiveAsset.asset_type === AssetType.BLOCKCHAIN) {
+            proceeds = new Decimal(tx.receive_asset_quantity!).times(getPrice(tx.receive_asset_symbol!, priceCache)); // FMV of Receive Asset
+          } else if (asset.asset_type === AssetType.BLOCKCHAIN) {
+            proceeds = new Decimal(tx.send_asset_quantity).times(getPrice(tx.send_asset_symbol, priceCache)); // FMV of Send Asset
           }
-          proceeds = new Decimal(tx.receive_asset_quantity!).times(priceCache[tx.receive_asset_symbol!].price); // FMV of Receive Asset
         }
         // Fees (Outlays) - Only applicable for SELL and SEND. BUY, RECEIVE, TRADE will instead include fee back into ACB of the acquired asset.
         let fee = new Decimal(0);
@@ -712,7 +712,7 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
             if (!priceCache[tx.fee_asset_symbol] || !priceCache[tx.fee_asset_symbol].price) {
               throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
             }
-            fee = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price); // FMV of Fee Asset
+            fee = new Decimal(tx.fee_asset_quantity).times(getPrice(tx.fee_asset_symbol, priceCache)); // FMV of Fee Asset
           }
         }
         // Costs + ACB
@@ -756,27 +756,27 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         if (tx.type === TransactionType.BUY) {
           cost = new Decimal(tx.send_asset_quantity!);
         } else if (tx.type === TransactionType.RECEIVE && tx.is_income) {
-          if (!priceCache[tx.receive_asset_symbol] || !priceCache[tx.receive_asset_symbol].price) {
-            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          // Can't easily determine the FMV/floor of NFTs received, hence just leave as 0
+          if (asset.asset_type === AssetType.BLOCKCHAIN) {
+            cost = new Decimal(tx.receive_asset_quantity).times(getPrice(tx.receive_asset_symbol, priceCache)); // FMV of Receive Asset
+            totalIncome = totalIncome.plus(cost);
+            yearlyTotals[year].totalIncome = yearlyTotals[year].totalIncome.plus(cost);
           }
-          cost = new Decimal(tx.receive_asset_quantity).times(priceCache[tx.receive_asset_symbol].price); // FMV of Receive Asset
-          totalIncome = totalIncome.plus(cost);
-          yearlyTotals[year].totalIncome = yearlyTotals[year].totalIncome.plus(cost);
         } else if (tx.type === TransactionType.TRADE) {
-          if (!priceCache[tx.send_asset_symbol!] || !priceCache[tx.send_asset_symbol!].price) {
-            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
+          // Can't easily determine FMV/floor of NFTs sent or received, handle accordingly
+          const sendAsset = await getAsset(tx.send_asset_symbol!);
+          if (sendAsset.asset_type === AssetType.BLOCKCHAIN) {
+            cost = new Decimal(tx.send_asset_quantity!).times(getPrice(tx.send_asset_symbol!, priceCache)); // FMV of Send Asset
+          } else if (asset.asset_type === AssetType.BLOCKCHAIN) {
+            cost = new Decimal(tx.receive_asset_quantity).times(getPrice(tx.receive_asset_symbol, priceCache)); // FMV of Receive Asset
           }
-          cost = new Decimal(tx.send_asset_quantity!).times(priceCache[tx.send_asset_symbol!].price); // FMV of Send Asset
         }
         // Fees
         let fee = new Decimal(0);
         if (tx.fee_asset_symbol === fiat_symbol && tx.fee_asset_quantity) {
           fee = new Decimal(tx.fee_asset_quantity);
         } else if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
-          if (!priceCache[tx.fee_asset_symbol] || !priceCache[tx.fee_asset_symbol].price) {
-            throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
-          }
-          fee = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price); // FMV of Fee Asset
+          fee = new Decimal(tx.fee_asset_quantity).times(getPrice(tx.fee_asset_symbol, priceCache)); // FMV of Fee Asset
         }
         // ACB
         acb = acb.plus(cost).plus(fee);
@@ -792,11 +792,8 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         tx.send_asset_symbol !== asset_symbol &&
         tx.receive_asset_symbol !== asset_symbol
       ) {
-        if (!priceCache[tx.fee_asset_symbol] || !priceCache[tx.fee_asset_symbol].price) {
-          throw new Error(`No valid price found for asset_symbol ${asset_symbol} and transaction ${tx.id} of type ${tx.type}`);
-        }
         // Proceeds
-        let proceeds = new Decimal(tx.fee_asset_quantity).times(priceCache[tx.fee_asset_symbol].price); // FMV of Fee Asset
+        let proceeds = new Decimal(tx.fee_asset_quantity).times(getPrice(tx.fee_asset_symbol, priceCache)); // FMV of Fee Asset
         // Costs + ACB
         const cost = new Decimal(tx.fee_asset_quantity).div(totalUnits).times(acb);
         acb = acb.minus(cost);
@@ -831,37 +828,45 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         console.log(acb, totalUnits, totalCosts, totalOutlays, totalIncome, tx);
         throw new Error(`Something went negative when it shouldn't have for symbol ${asset_symbol}. ACB: ${acb}, totalUnits: ${totalUnits}, totalCosts: ${totalCosts}, totalOutlays: ${totalOutlays}`);
       }
+    } catch (err: any) {
+      console.error(`Failed to process transaction ${tx.id} of type ${tx.type} due to ${err.message}`);
+      throw err;
     }
-    // Finalize yearly totals
-    const response: Record<string, AcbDataNumber> = {};
-    Object.entries(yearlyTotals).forEach(([year, data]) => {
-      response[year] = {
-        acb: data.acb.toNumber(),
-        totalUnits: data.totalUnits.toNumber(),
-        totalProceeds: data.totalProceeds.toNumber(),
-        totalCosts: data.totalCosts.toNumber(),
-        totalOutlays: data.totalOutlays.toNumber(),
-        totalGainLoss: data.totalGainLoss.toNumber(),
-        superficialLosses: data.superficialLosses.toNumber(),
-        totalIncome: data.totalIncome.toNumber(),
-      }
-    });
-    // Finalize overall total
-    response['TOTALS'] = {
-      acb: acb.toNumber(),
-      totalUnits: totalUnits.toNumber(),
-      totalProceeds: totalProceeds.toNumber(),
-      totalCosts: totalCosts.toNumber(),
-      totalOutlays: totalOutlays.toNumber(),
-      totalGainLoss: totalGainLoss.toNumber(),
-      superficialLosses: superficialLosses.toNumber(),
-      totalIncome: totalIncome.toNumber(),
-    };
-    return response;
-  } catch (err) {
-    console.error(err);
-    throw err;
   }
+
+  // Finalize yearly totals
+  const response: Record<string, AcbDataNumber> = {};
+  Object.entries(yearlyTotals).forEach(([year, data]) => {
+    response[year] = {
+      acb: data.acb.toNumber(),
+      totalUnits: data.totalUnits.toNumber(),
+      totalProceeds: data.totalProceeds.toNumber(),
+      totalCosts: data.totalCosts.toNumber(),
+      totalOutlays: data.totalOutlays.toNumber(),
+      totalGainLoss: data.totalGainLoss.toNumber(),
+      superficialLosses: data.superficialLosses.toNumber(),
+      totalIncome: data.totalIncome.toNumber(),
+    }
+  });
+  // Finalize overall total
+  response['TOTALS'] = {
+    acb: acb.toNumber(),
+    totalUnits: totalUnits.toNumber(),
+    totalProceeds: totalProceeds.toNumber(),
+    totalCosts: totalCosts.toNumber(),
+    totalOutlays: totalOutlays.toNumber(),
+    totalGainLoss: totalGainLoss.toNumber(),
+    superficialLosses: superficialLosses.toNumber(),
+    totalIncome: totalIncome.toNumber(),
+  };
+  return response;
+}
+
+function getPrice(symbol: string, priceCache: Record<string, Price>): number {
+  if (!priceCache[symbol] || !priceCache[symbol].price) {
+    throw new Error(`No valid price found for asset_symbol ${symbol}.`);
+  }
+  return priceCache[symbol].price;
 }
 
 // ==============

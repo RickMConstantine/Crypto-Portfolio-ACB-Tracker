@@ -8,8 +8,8 @@ import { AssetType, Asset, Price, Transaction, InsertionType } from './types';
 //=======================
 let db: Database | undefined;
 
-export async function initDb(path: string): Promise<Database | Error> {
-  return new Promise<Database | Error>((resolve, reject) => {
+export async function initDb(path: string): Promise<Database> {
+  return new Promise<Database>((resolve, reject) => {
     mkdir(dirname(path), { recursive: true }, (err) => {
       if (err) {
         return reject(err);
@@ -66,8 +66,8 @@ export async function initDb(path: string): Promise<Database | Error> {
   });
 }
 
-export async function destroyDb(path: string): Promise<void | Error> {
-  return new Promise<void | Error>((resolve, reject) => {
+export async function destroyDb(path: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.close((err) => {
       if (err) {
@@ -89,8 +89,8 @@ export async function destroyDb(path: string): Promise<void | Error> {
 // Assets
 //=======================
 // Create
-export async function addAsset({name, symbol, asset_type, logo_url, launch_date}: Asset): Promise<Asset[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function addAsset({name, symbol, asset_type, logo_url, launch_date}: Omit<Asset, 'id'>): Promise<Asset[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.serialize(() => {
       if (!db) return reject(new Error('DB not initialized'));
@@ -116,8 +116,8 @@ export async function addAsset({name, symbol, asset_type, logo_url, launch_date}
   });
 }
 
-export async function addAssets(assets: Asset[]): Promise<Asset[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function addAssets(assets: Asset[]): Promise<Asset[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     if (!assets.length) return reject(new Error('No assets to add'));
 
@@ -135,29 +135,32 @@ export async function addAssets(assets: Asset[]): Promise<Asset[] | Error> {
 
 // Retrieve
 export async function getAssets(filters?: {
-  name?: string,
-  symbol?: string,
-  asset_type?: AssetType,
-}): Promise<Asset[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+  names?: string[],
+  symbols?: string[],
+  asset_types?: AssetType[],
+}): Promise<Asset[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     let sql = 'SELECT * FROM assets WHERE 1=1';
     const params: any[] = [];
     if (filters) {
-      if (filters.name) {
-        sql += ' AND name = ?';
-        params.push(filters.name);
+      if (filters.names?.length) {
+        const placeholders = filters.names.map(() => '?').join(',');
+        sql += ` AND name IN (${placeholders})`;
+        params.push(...filters.names);
       }
-      if (filters.symbol) {
-        sql += ' AND symbol = ?';
-        params.push(filters.symbol);
+      if (filters.symbols?.length) {
+        const placeholders = filters.symbols.map(() => '?').join(',');
+        sql += ` AND symbol IN (${placeholders})`;
+        params.push(...filters.symbols);
       }
-      if (filters.asset_type) {
-        sql += ' AND asset_type = ?';
-        params.push(filters.asset_type);
+      if (filters.asset_types?.length) {
+        const placeholders = filters.asset_types.map(() => '?').join(',');
+        sql += ` AND asset_type IN (${placeholders})`;
+        params.push(...filters.asset_types);
       }
     }
-    sql += ' ORDER BY asset_type DESC, symbol ASC';
+    sql += ' ORDER BY symbol ASC';
     db.all(sql, params, (err, rows) => {
       if (err) return reject(err);
       resolve(rows);
@@ -166,8 +169,8 @@ export async function getAssets(filters?: {
 }
 
 // Update
-export async function updateAsset(symbol: string, name: string, asset_type: AssetType, launch_date: number, logo_url: string): Promise<Asset[] | Error> {
-    return new Promise<any[] | Error>((resolve, reject) => {
+export async function updateAsset(symbol: string, name: string, asset_type: AssetType, launch_date: number, logo_url: string): Promise<Asset[]> {
+    return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
       'UPDATE assets SET name = ?, asset_type = ?, launch_date = ?, logo_url = ? WHERE symbol = ? RETURNING *',
@@ -189,8 +192,8 @@ export async function updateAsset(symbol: string, name: string, asset_type: Asse
 }
 
 // Delete
-export async function deleteAsset(symbol: string): Promise<Asset[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function deleteAsset(symbol: string): Promise<Asset[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.serialize(() => {
       if (!db) return reject(new Error('DB not initialized'));
@@ -208,8 +211,8 @@ export async function deleteAsset(symbol: string): Promise<Asset[] | Error> {
   });
 }
 
-export async function deleteAllAssets(): Promise<Asset[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function deleteAllAssets(): Promise<Asset[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.serialize(() => {
       if (!db) return reject(new Error('DB not initialized'));
@@ -230,8 +233,8 @@ export async function deleteAllAssets(): Promise<Asset[] | Error> {
 // Prices
 //=======================
 // Create
-export async function addPrice({unix_timestamp, price, asset_symbol, fiat_symbol}: Price): Promise<Price[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function addPrice({unix_timestamp, price, asset_symbol, fiat_symbol}: Price): Promise<Price[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
       'INSERT INTO prices (unix_timestamp, price, asset_symbol, fiat_symbol) VALUES (?, ?, ?, ?) RETURNING *',
@@ -246,8 +249,8 @@ export async function addPrice({unix_timestamp, price, asset_symbol, fiat_symbol
   });
 }
 
-export async function addPrices(prices: Price[], insertionType: InsertionType = InsertionType.INSERT): Promise<Price[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function addPrices(prices: Price[], insertionType: InsertionType = InsertionType.INSERT): Promise<Price[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     if (!prices.length) return reject(new Error('No prices to add'));
 
@@ -279,8 +282,8 @@ export async function getPrices(filters?: {
   fiat_symbol?: string;
   date_from?: number;
   date_to?: number;
-}): Promise<Price[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+}): Promise<Price[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     let sql = `
       SELECT prices.*, a.logo_url AS asset_logo_url, f.logo_url AS fiat_logo_url
@@ -317,8 +320,8 @@ export async function getPrices(filters?: {
 }
 
 // Update
-export async function updatePrice({ unix_timestamp, asset_symbol, fiat_symbol, price }: Price): Promise<Price[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function updatePrice({ unix_timestamp, asset_symbol, fiat_symbol, price }: Price): Promise<Price[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
       'UPDATE prices SET price = ? WHERE unix_timestamp = ? AND asset_symbol = ? AND fiat_symbol = ? RETURNING *',
@@ -340,8 +343,8 @@ export async function updatePrice({ unix_timestamp, asset_symbol, fiat_symbol, p
 }
 
 // Delete
-export async function deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }: Omit<Price, 'price'>): Promise<Price[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }: Omit<Price, 'price'>): Promise<Price[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
       'DELETE FROM prices WHERE unix_timestamp = ? AND asset_symbol = ? AND fiat_symbol = ? RETURNING *',
@@ -357,7 +360,7 @@ export async function deletePrice({ unix_timestamp, asset_symbol, fiat_symbol }:
 }
 
 // Helper to get the latest price for an asset in fiat before or at a given timestamp
-export async function getLatestPrice(asset_symbol: string, fiat_symbol: string, unix_timestamp: number): Promise<Price | Error> {
+export async function getLatestPrice(asset_symbol: string, fiat_symbol: string, unix_timestamp: number): Promise<Price> {
   return new Promise<Price>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.get(
@@ -388,8 +391,8 @@ export async function addTransaction(
     is_income,
     notes
   }: Omit<Transaction, 'id'>
-): Promise<Transaction[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+): Promise<Transaction[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
       `
@@ -435,8 +438,8 @@ export async function getTransactions(filters?: {
   type?: string;
   date_from?: number;
   date_to?: number;
-}): Promise<Transaction[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+}): Promise<Transaction[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     let sql = `
       SELECT
@@ -479,8 +482,8 @@ export async function getTransactions(filters?: {
 }
 
 // Update
-export async function updateTransaction(id: number, data: Omit<Transaction, 'id'>): Promise<Transaction[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function updateTransaction(id: number, data: Omit<Transaction, 'id'>): Promise<Transaction[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
 
     const setClause = Object.entries(data)
@@ -518,8 +521,8 @@ export async function updateTransaction(id: number, data: Omit<Transaction, 'id'
 }
 
 // Delete
-export async function deleteTransaction(id: number): Promise<Transaction[] | Error> {
-  return new Promise<any[] | Error>((resolve, reject) => {
+export async function deleteTransaction(id: number): Promise<Transaction[]> {
+  return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all('DELETE FROM transactions WHERE id = ? RETURNING *', [id], (err, rows) => {
       if (err) return reject(err);

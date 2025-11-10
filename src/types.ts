@@ -2,7 +2,8 @@ import Decimal from "decimal.js";
 
 export enum AssetType {
     BLOCKCHAIN = 'blockchain',
-    FIAT = 'fiat'
+    FIAT = 'fiat',
+    NFT = 'nft'
 }
 
 export enum TransactionType {
@@ -88,9 +89,9 @@ export interface FinageAggregatesResponse {
 
 export interface Asset {
     symbol: string;
-    name: string;
+    name?: string;
     asset_type: AssetType;
-    launch_date: number;
+    launch_date?: number;
     logo_url?: string;
 }
 
@@ -103,7 +104,8 @@ export interface Price {
     fiat_logo_url?: string;
 }
 
-export interface TransactionInput {
+export interface Transaction {
+    id: number;
     unix_timestamp: number;
     type: TransactionType;
     send_asset_symbol?: string;
@@ -114,10 +116,6 @@ export interface TransactionInput {
     fee_asset_quantity?: number;
     is_income?: boolean;
     notes?: string;
-}
-
-export interface Transaction extends TransactionInput {
-    id: number;
 }
 
 export interface AcbDataDecimal {
