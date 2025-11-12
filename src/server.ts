@@ -833,21 +833,38 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
       throw err;
     }
   }
-
   // Finalize yearly totals
   const response: Record<string, AcbDataNumber> = {};
-  Object.entries(yearlyTotals).forEach(([year, data]) => {
-    response[year] = {
-      acb: data.acb.toNumber(),
-      totalUnits: data.totalUnits.toNumber(),
-      totalProceeds: data.totalProceeds.toNumber(),
-      totalCosts: data.totalCosts.toNumber(),
-      totalOutlays: data.totalOutlays.toNumber(),
-      totalGainLoss: data.totalGainLoss.toNumber(),
-      superficialLosses: data.superficialLosses.toNumber(),
-      totalIncome: data.totalIncome.toNumber(),
+  const startingYear = Math.min(...Object.keys(yearlyTotals).map(Number));
+  const currentYear = new Date().getFullYear();
+  let prevData: AcbDataNumber | undefined;
+  for (let year = startingYear; year < currentYear; year++) {
+    const data = yearlyTotals[year];
+    if (data && Object.keys(data).length) {
+      response[year] = {
+        acb: data.acb.toNumber(),
+        totalUnits: data.totalUnits.toNumber(),
+        totalProceeds: data.totalProceeds.toNumber(),
+        totalCosts: data.totalCosts.toNumber(),
+        totalOutlays: data.totalOutlays.toNumber(),
+        totalGainLoss: data.totalGainLoss.toNumber(),
+        superficialLosses: data.superficialLosses.toNumber(),
+        totalIncome: data.totalIncome.toNumber(),
+      };
+      prevData = response[year];
+    } else {
+      response[year] = {
+        acb: prevData?.acb || 0,
+        totalUnits: prevData?.totalUnits || 0,
+        totalProceeds: 0,
+        totalCosts: 0,
+        totalOutlays: 0,
+        totalGainLoss: 0,
+        superficialLosses: 0,
+        totalIncome: 0,
+      };
     }
-  });
+  }
   // Finalize overall total
   response['TOTALS'] = {
     acb: acb.toNumber(),

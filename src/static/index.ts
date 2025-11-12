@@ -789,7 +789,9 @@ async function renderTaxPage(): Promise<void> {
       yearlyTbody.innerHTML = `<tr><td colspan="7">Error: ${acbData.error}</td></tr>`;
       return;
     }
-    // Asset-level ACB table
+    // =====================
+    // Per-Asset ACB table
+    // =====================
     acbTbody.innerHTML = Object.entries(acbData).map(([symbol, data]) => {
       if (data.error) {
         return `<tr><td colspan="9">${symbol} encountered error: ${data.error}</td></tr>`;
@@ -847,7 +849,9 @@ async function renderTaxPage(): Promise<void> {
         </td>
       </tr>`;
     }).join('');
-    // Yearly aggregates table
+    // =====================
+    // Per-Year ACB table
+    // =====================
     const yearly: Record<string, any> = {};
     Object.values(acbData).forEach((assetData: any) => {
       Object.entries(assetData)
