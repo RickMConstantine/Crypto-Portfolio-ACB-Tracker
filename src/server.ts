@@ -682,7 +682,7 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
             ((tx.type === TransactionType.SELL || tx.type === TransactionType.TRADE) && (!tx.receive_asset_symbol || !tx.receive_asset_quantity))) {
           throw new Error(`No valid receive asset found for transaction ${tx.id} of type ${tx.type}`);
         };
-        if (totalUnits.equals(0)) {
+        if (totalUnits.lessThanOrEqualTo(0)) {
           throw new Error(`Cannot sell ${asset_symbol} because no units are available`);
         }
         // Proceeds
@@ -785,13 +785,11 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
         yearlyTotals[year].totalUnits = yearlyTotals[year].totalUnits.plus(tx.receive_asset_quantity);
       }
 
-      // --- Fees paid in the asset (not part of a send/receive): Disposition ---
-      if (
-        tx.fee_asset_symbol === asset_symbol &&
-        tx.fee_asset_quantity &&
-        tx.send_asset_symbol !== asset_symbol &&
-        tx.receive_asset_symbol !== asset_symbol
-      ) {
+      // --- Fees paid in the asset: Disposition ---
+      if (tx.fee_asset_symbol === asset_symbol) {
+        if (!tx.fee_asset_quantity) {
+          throw new Error(`No valid fee quantity found for transaction ${tx.id} of type ${tx.type}`);
+        };
         // Proceeds
         let proceeds = new Decimal(tx.fee_asset_quantity).times(getPrice(tx.fee_asset_symbol, priceCache)); // FMV of Fee Asset
         // Costs + ACB
