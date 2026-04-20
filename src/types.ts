@@ -116,6 +116,14 @@ export interface Transaction {
     fee_asset_quantity?: number;
     is_income?: boolean;
     notes?: string;
+    from_wallet_id?: number;
+    to_wallet_id?: number;
+}
+
+export interface Wallet {
+    id: number;
+    name: string;
+    description?: string;
 }
 
 export interface AcbDataDecimal {

@@ -1,4 +1,4 @@
-import { Asset, Price, Transaction } from '../types';
+import { Asset, Price, Transaction, Wallet } from '../types';
 
 //=======================
 // Query Document
@@ -8,6 +8,7 @@ const contents: Record<string, HTMLElement> = {
   assets: document.getElementById('assets-content') as HTMLElement,
   prices: document.getElementById('prices-content') as HTMLElement,
   transactions: document.getElementById('transactions-content') as HTMLElement,
+  wallets: document.getElementById('wallets-content') as HTMLElement,
   tax: document.getElementById('tax-content') as HTMLElement
 };
 
@@ -502,13 +503,32 @@ async function renderTransactions(): Promise<void> {
   if (filters.date_from) params.append('date_from', filters.date_from.toString());
   if (filters.date_to) params.append('date_to', filters.date_to.toString());
   const url = '/api/transactions' + (params.toString() ? `?${params.toString()}` : '');
-  await fetchAndRender(url, 'transactions-table', row =>
-    `<td>${row.id}</td><td>${getDateTimeString(row.unix_timestamp, false)}Z</td><td>${row.type}</td>
+  // Fetch wallets for name lookup
+  const walletsRes = await fetch('/api/wallets');
+  const allWallets: Wallet[] = await walletsRes.json();
+  const walletMap: Record<number, string> = {};
+  allWallets.forEach(w => { walletMap[w.id] = w.name; });
+
+  const txRes = await fetch(url);
+  const txData: any[] = await txRes.json();
+  const tbody = document.querySelector('#transactions-table tbody') as HTMLTableSectionElement;
+  tbody.innerHTML = '';
+  txData.forEach((row: any) => {
+    const tr = document.createElement('tr');
+    tr.dataset.fromWalletId = row.from_wallet_id || '';
+    tr.dataset.toWalletId = row.to_wallet_id || '';
+    tr.innerHTML = `<td>${row.id}</td><td>${getDateTimeString(row.unix_timestamp, false)}Z</td><td>${row.type}</td>
       <td>${row.send_asset_symbol}</td><td>${row.send_asset_quantity ? row.send_asset_quantity : ''}</td>
       <td>${row.receive_asset_symbol}</td><td>${row.receive_asset_quantity ? row.receive_asset_quantity : ''}</td>
       <td>${row.fee_asset_symbol}</td><td>${row.fee_asset_quantity ? row.fee_asset_quantity : ''}</td>
-      <td>${row.is_income ? '✓' : ''}</td><td>${row.notes ? row.notes : ''}</td>`
-  ).then(() => {
+      <td>${row.from_wallet_id ? (walletMap[row.from_wallet_id] || row.from_wallet_id) : ''}</td>
+      <td>${row.to_wallet_id ? (walletMap[row.to_wallet_id] || row.to_wallet_id) : ''}</td>
+      <td>${row.is_income ? '✓' : ''}</td><td>${row.notes ? row.notes : ''}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Add click handlers
+  (() => {
     const rows = document.querySelectorAll<HTMLTableRowElement>('#transactions-table tbody tr');
     rows.forEach(tr => {
       const id = tr.children[0].textContent || '';
@@ -523,8 +543,10 @@ async function renderTransactions(): Promise<void> {
           receive_asset_quantity: (tr.children[6].textContent !== '') ? Number(tr.children[6].textContent) : undefined,
           fee_asset_symbol: tr.children[7].textContent || '',
           fee_asset_quantity: (tr.children[8].textContent !== '') ? Number(tr.children[8].textContent) : undefined,
-          is_income: tr.children[9].textContent === '✓',
-          notes: tr.children[10].textContent || ''
+          from_wallet_id: tr.dataset.fromWalletId ? Number(tr.dataset.fromWalletId) : undefined,
+          to_wallet_id: tr.dataset.toWalletId ? Number(tr.dataset.toWalletId) : undefined,
+          is_income: tr.children[11].textContent === '✓',
+          notes: tr.children[12].textContent || ''
         } as Transaction;
         showAddEditTransactionModal(transaction);
       };
@@ -537,7 +559,7 @@ async function renderTransactions(): Promise<void> {
         tr.title = '';
       };
     });
-  });
+  })();
 }
 renderTransactions();
 
@@ -598,8 +620,12 @@ function showAddEditTransactionModal(transaction?: Transaction) {
   const receiveQty = document.getElementById('edit-receive-asset-quantity') as HTMLInputElement;
   const feeAssetSelect = document.getElementById('edit-fee-asset-select') as HTMLSelectElement;
   const feeAssetQty = form.querySelector('input[name="fee_asset_quantity"]') as HTMLInputElement;
+  const fromWalletSelect = document.getElementById('edit-from-wallet-select') as HTMLSelectElement;
+  const toWalletSelect = document.getElementById('edit-to-wallet-select') as HTMLSelectElement;
   const saveBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
   const errorDiv = document.getElementById('edit-transaction-error') as HTMLElement;
+  // Populate wallet dropdowns
+  populateWalletDropdowns([fromWalletSelect, toWalletSelect]);
   // Show modal
   modal.classList.add('active');
   // Validation function
@@ -644,6 +670,11 @@ function showAddEditTransactionModal(transaction?: Transaction) {
     (document.getElementById('edit-fee-asset-quantity') as HTMLInputElement).value = String(transaction.fee_asset_quantity) || '';
     (document.getElementById('edit-is-income') as HTMLInputElement).checked = !!transaction.is_income;
     (document.getElementById('edit-notes') as HTMLInputElement).value = transaction.notes || '';
+    // Set wallet values after a short delay to allow dropdowns to populate
+    setTimeout(() => {
+      (document.getElementById('edit-from-wallet-select') as HTMLSelectElement).value = transaction.from_wallet_id ? String(transaction.from_wallet_id) : '';
+      (document.getElementById('edit-to-wallet-select') as HTMLSelectElement).value = transaction.to_wallet_id ? String(transaction.to_wallet_id) : '';
+    }, 100);
     (document.getElementById('edit-transaction-error') as HTMLElement).textContent = '';
     validateAddEditTransactionForm();
   }
@@ -672,7 +703,9 @@ function showAddEditTransactionModal(transaction?: Transaction) {
           fee_asset_symbol: fd.get('fee_asset_symbol'),
           fee_asset_quantity: Number(fd.get('fee_asset_quantity')),
           is_income: fd.get('is_income') === 'on',
-          notes: fd.get('notes')
+          notes: fd.get('notes'),
+          from_wallet_id: fd.get('from_wallet_id') ? Number(fd.get('from_wallet_id')) : null,
+          to_wallet_id: fd.get('to_wallet_id') ? Number(fd.get('to_wallet_id')) : null
         })
       });
       if (!resp.ok) {
@@ -728,6 +761,168 @@ function populateAllTransactionTypeDropdowns() {
   ]);
 }
 populateAllTransactionTypeDropdowns();
+
+// Wallet dropdown helper
+async function populateWalletDropdowns(selects: Array<HTMLSelectElement | null>) {
+  const res = await fetch('/api/wallets');
+  const wallets: Wallet[] = await res.json();
+  selects.forEach(select => {
+    if (!select) return;
+    select.innerHTML = '<option value="">None</option>';
+    wallets.forEach(wallet => {
+      const opt = document.createElement('option');
+      opt.value = String(wallet.id);
+      opt.textContent = wallet.name;
+      select.appendChild(opt);
+    });
+  });
+}
+
+//=======================
+// Wallets Page
+//=======================
+function renderWallets(): void {
+  fetchAndRender('/api/wallets', 'wallets-table', row =>
+    `<td>${row.id}</td><td>${row.name}</td><td>${row.description || ''}</td><td class="wallet-balances" data-wallet-id="${row.id}">Loading...</td>`
+  ).then(async () => {
+    // Fetch balances for each wallet and populate the dropdown
+    const balanceCells = document.querySelectorAll<HTMLTableCellElement>('#wallets-table .wallet-balances');
+    for (const cell of Array.from(balanceCells)) {
+      const walletId = cell.dataset.walletId;
+      if (!walletId) continue;
+      try {
+        const res = await fetch(`/api/wallet/${walletId}/balances`);
+        const balances: { symbol: string; balance: number }[] = await res.json();
+        if (!balances.length) {
+          cell.textContent = 'No assets';
+        } else {
+          const details = document.createElement('details');
+          const summary = document.createElement('summary');
+          summary.textContent = `${balances.length} asset${balances.length > 1 ? 's' : ''}`;
+          details.appendChild(summary);
+          const list = document.createElement('ul');
+          list.style.margin = '0.25em 0';
+          list.style.paddingLeft = '1.2em';
+          balances.forEach(b => {
+            const li = document.createElement('li');
+            li.textContent = `${b.symbol}: ${b.balance}`;
+            list.appendChild(li);
+          });
+          details.appendChild(list);
+          cell.textContent = '';
+          cell.appendChild(details);
+        }
+      } catch {
+        cell.textContent = 'Error';
+      }
+    }
+    // Add click handlers for editing
+    const rows = document.querySelectorAll<HTMLTableRowElement>('#wallets-table tbody tr');
+    rows.forEach(tr => {
+      const id = Number(tr.children[0].textContent);
+      const name = tr.children[1].textContent || '';
+      const description = tr.children[2].textContent || '';
+      tr.onmouseenter = function () {
+        tr.style.background = '#e6f7ff';
+        tr.title = 'Click to edit wallet';
+      };
+      tr.onmouseleave = function () {
+        tr.style.background = '';
+        tr.title = '';
+      };
+      tr.onclick = function (e) {
+        // Don't trigger edit when clicking on the balances details/summary
+        if ((e.target as HTMLElement).closest('details')) return;
+        showAddEditWalletModal({ id, name, description } as Wallet);
+      };
+    });
+  });
+}
+renderWallets();
+
+// Add Wallet button
+(document.getElementById('open-edit-wallet-modal-btn') as HTMLButtonElement).onclick = function() {
+  showAddEditWalletModal();
+};
+
+// Add/Edit Wallet Modal
+function showAddEditWalletModal(wallet?: Wallet) {
+  const modal = document.getElementById('edit-wallet-modal') as HTMLElement;
+  const form = document.getElementById('edit-wallet-form') as HTMLFormElement;
+  const title = document.getElementById('edit-wallet-title') as HTMLElement;
+  const errorDiv = document.getElementById('edit-wallet-error') as HTMLElement;
+  const nameInput = document.getElementById('edit-wallet-name') as HTMLInputElement;
+  const descInput = document.getElementById('edit-wallet-description') as HTMLInputElement;
+  const saveBtn = document.getElementById('save-wallet-btn') as HTMLButtonElement;
+  const cancelBtn = document.getElementById('cancel-edit-wallet-modal') as HTMLButtonElement;
+  const deleteBtn = document.getElementById('delete-wallet-btn') as HTMLButtonElement;
+  form.reset();
+  errorDiv.textContent = '';
+  if (wallet) {
+    title.textContent = 'Edit Wallet';
+    nameInput.value = wallet.name || '';
+    descInput.value = wallet.description || '';
+    deleteBtn.style.display = '';
+  } else {
+    title.textContent = 'Add Wallet';
+    deleteBtn.style.display = 'none';
+  }
+  modal.classList.add('active');
+  cancelBtn.onclick = function() {
+    modal.classList.remove('active');
+  };
+  form.onsubmit = async function(e: Event) {
+    e.preventDefault();
+    errorDiv.textContent = '';
+    const fd = new FormData(form);
+    try {
+      let resp: Response;
+      if (wallet) {
+        resp = await fetch(`/api/wallet/${wallet.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: fd.get('name'),
+            description: fd.get('description')
+          })
+        });
+      } else {
+        resp = await fetch('/api/wallet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: fd.get('name'),
+            description: fd.get('description')
+          })
+        });
+      }
+      if (!resp.ok) {
+        const msg = await resp.text();
+        throw new Error(msg || 'Failed to save wallet');
+      }
+      modal.classList.remove('active');
+      renderWallets();
+    } catch (err: any) {
+      errorDiv.textContent = err.message || 'Failed to save wallet';
+    }
+  };
+  deleteBtn.onclick = async function() {
+    if (!wallet) return;
+    if (!confirm('Are you sure you want to delete this wallet? Transactions referencing it will have their wallet association removed.')) return;
+    errorDiv.textContent = '';
+    try {
+      const resp = await fetch(`/api/wallet/${wallet.id}`, { method: 'DELETE' });
+      if (!resp.ok) {
+        const msg = await resp.text();
+        throw new Error(msg || 'Failed to delete wallet');
+      }
+      modal.classList.remove('active');
+      renderWallets();
+    } catch (err: any) {
+      errorDiv.textContent = err.message || 'Failed to delete wallet';
+    }
+  };
+}
 
 // Validation helper for transaction forms
 function validateTransactionFields(

@@ -91,6 +91,32 @@
     #edit-asset-modal #delete-asset-btn { margin-left: 1em; color: #fff; background: #d9534f; }
     #edit-asset-modal #refresh-prices-btn { margin-left: 1em; color: #fff; background: #f39c12; }
     #edit-asset-modal #edit-asset-error { color: red; margin-top: 0.5em; }
+    /* Wallet Modal styles */
+    #edit-wallet-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.3);
+      align-items: center;
+      justify-content: center;
+      z-index: 1300;
+    }
+    #edit-wallet-modal.active {
+      display: flex;
+    }
+    #edit-wallet-modal .modal-content {
+      background: #fff;
+      padding: 2em;
+      border-radius: 8px;
+      min-width: 350px;
+    }
+    #edit-wallet-modal label { display: block; margin-top: 0.5em; }
+    #edit-wallet-modal button { margin-top: 1em; }
+    #edit-wallet-modal #delete-wallet-btn { margin-left: 1em; color: #fff; background: #d9534f; }
+    #edit-wallet-modal #edit-wallet-error { color: red; margin-top: 0.5em; }
   </style>
 </head>
 <body>
@@ -99,6 +125,7 @@
     <div class="tab active" data-tab="assets">Assets</div>
     <div class="tab" data-tab="prices">Prices</div>
     <div class="tab" data-tab="transactions">Transactions</div>
+    <div class="tab" data-tab="wallets">Wallets</div>
     <div class="tab" data-tab="tax">Tax</div>
   </div>
   <!-- Asset Tab -->
@@ -283,6 +310,7 @@
           <th>Send Symbol</th><th>Send Qty</th>
           <th>Receive Symbol</th><th>Receive Qty</th>
           <th>Fee Symbol</th><th>Fee Qty</th>
+          <th>From Wallet</th><th>To Wallet</th>
           <th>Income</th><th>Notes</th>
         </tr>
       </thead>
@@ -290,6 +318,41 @@
         <!-- Populated in index.js -->
       </tbody>
     </table>
+  </div>
+  <div class="tab-content" id="wallets-content" style="display:none;">
+    <h2>Wallets</h2>
+    <button id="open-edit-wallet-modal-btn" style="margin-bottom:1em;">Add Wallet</button>
+    <table id="wallets-table" border="1">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Description</th>
+          <th>Balances</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated in index.js -->
+      </tbody>
+    </table>
+  </div>
+  <!-- Add/Edit Wallet Modal -->
+  <div id="edit-wallet-modal">
+    <div class="modal-content">
+      <h3 id="edit-wallet-title">Add Wallet</h3>
+      <form id="edit-wallet-form">
+        <label>Name:
+          <input type="text" name="name" id="edit-wallet-name" required>
+        </label>
+        <label>Description:
+          <input type="text" name="description" id="edit-wallet-description">
+        </label>
+        <button type="submit" id="save-wallet-btn">Save</button>
+        <button type="button" id="delete-wallet-btn" style="display:none;">Delete</button>
+        <button type="button" id="cancel-edit-wallet-modal">Cancel</button>
+        <div id="edit-wallet-error" style="color:#d9534f;"></div>
+      </form>
+    </div>
   </div>
   <div class="tab-content" id="tax-content" style="display:none;">
     <h2>Asset Summary</h2>
@@ -358,6 +421,16 @@
         </label>
         <label>Fee Qty:
           <input type="number" step="any" name="fee_asset_quantity" id="edit-fee-asset-quantity">
+        </label>
+        <label>From Wallet:
+          <select name="from_wallet_id" id="edit-from-wallet-select">
+            <option value="">None</option>
+          </select>
+        </label>
+        <label>To Wallet:
+          <select name="to_wallet_id" id="edit-to-wallet-select">
+            <option value="">None</option>
+          </select>
         </label>
         <label>Income:
           <input type="checkbox" name="is_income" id="edit-is-income">

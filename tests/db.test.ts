@@ -1,9 +1,10 @@
 import {
   initDb, destroyDb, addAsset, getAssets, addPrices, addPrice, getPrices,
-  addTransaction, getTransactions, addAssets, deleteAsset, deleteAllAssets
+  addTransaction, getTransactions, addAssets, deleteAsset, deleteAllAssets,
+  addWallet, getWallets, updateWallet, deleteWallet
 } from '../src/db';
 import { beforeAll, afterAll, describe, it, expect } from '@jest/globals';
-import { Asset, AssetType, Price, Transaction, TransactionType } from '../src/types';
+import { Asset, AssetType, Price, Transaction, TransactionType, Wallet } from '../src/types';
 
 const TEST_DB_PATH = `${__dirname}/app_db_test.sqlite`;
 
@@ -177,5 +178,88 @@ describe('DB functions', () => {
     const assets = await getAssets();
     if (assets instanceof Error) throw assets;
     expect(assets.some((a: Asset) => a.symbol === symbol)).toBeFalsy();
+  });
+
+  it('should add and get a wallet', async () => {
+    const newWallet = await addWallet({ name: 'Ledger Nano', description: 'Hardware wallet' });
+    expect(newWallet.length).toBe(1);
+    expect(newWallet[0].name).toBe('Ledger Nano');
+    expect(newWallet[0].description).toBe('Hardware wallet');
+    expect(newWallet[0].id).toBeDefined();
+    const wallets = await getWallets();
+    expect(wallets.some((w: Wallet) => w.name === 'Ledger Nano' && w.description === 'Hardware wallet')).toBeTruthy();
+  });
+
+  it('should add a wallet without description', async () => {
+    const newWallet = await addWallet({ name: 'MetaMask' });
+    expect(newWallet.length).toBe(1);
+    expect(newWallet[0].name).toBe('MetaMask');
+    expect(newWallet[0].description).toBeNull();
+  });
+
+  it('should get wallets with filters', async () => {
+    const wallets = await getWallets({ names: ['Ledger Nano'] });
+    expect(wallets.length).toBe(1);
+    expect(wallets[0].name).toBe('Ledger Nano');
+
+    const byId = await getWallets({ ids: [wallets[0].id] });
+    expect(byId.length).toBe(1);
+    expect(byId[0].name).toBe('Ledger Nano');
+  });
+
+  it('should update a wallet', async () => {
+    const wallets = await getWallets({ names: ['Ledger Nano'] });
+    const id = wallets[0].id;
+    const updated = await updateWallet(id, 'Ledger Nano X', 'Updated hardware wallet');
+    expect(updated.length).toBe(1);
+    expect(updated[0].name).toBe('Ledger Nano X');
+    expect(updated[0].description).toBe('Updated hardware wallet');
+  });
+
+  it('should add a transaction with wallet associations', async () => {
+    const wallets = await getWallets();
+    const wallet1 = wallets[0];
+    const wallet2 = wallets[1];
+    const assets = await getAssets();
+    const btc = assets.find((a: Asset) => a.symbol === 'BTC')?.symbol;
+    const eth = assets.find((a: Asset) => a.symbol === 'ETH')?.symbol;
+    if (!btc || !eth) throw new Error('Assets not found');
+    const unix_timestamp = new Date('2024-07-01').getTime();
+    const newTx = await addTransaction({
+      unix_timestamp,
+      type: TransactionType.SEND,
+      send_asset_symbol: btc,
+      send_asset_quantity: 0.5,
+      from_wallet_id: wallet1.id,
+      to_wallet_id: wallet2.id
+    });
+    expect(newTx.length).toBe(1);
+    expect(newTx[0].from_wallet_id).toBe(wallet1.id);
+    expect(newTx[0].to_wallet_id).toBe(wallet2.id);
+  });
+
+  it('should filter transactions by wallet_id', async () => {
+    const wallets = await getWallets();
+    const wallet1 = wallets[0];
+    const txs = await getTransactions({ wallet_id: wallet1.id });
+    expect(txs.length).toBeGreaterThan(0);
+    txs.forEach((tx: Transaction) => {
+      expect(tx.from_wallet_id === wallet1.id || tx.to_wallet_id === wallet1.id).toBeTruthy();
+    });
+  });
+
+  it('should delete a wallet and clear references from transactions', async () => {
+    const wallets = await getWallets({ names: ['MetaMask'] });
+    const id = wallets[0].id;
+    const result = await deleteWallet(id);
+    expect(result.length).toBe(1);
+    expect(result[0].name).toBe('MetaMask');
+    const remaining = await getWallets({ ids: [id] });
+    expect(remaining.length).toBe(0);
+  });
+
+  it('should reject duplicate wallet names', async () => {
+    await addWallet({ name: 'UniqueWallet' });
+    await expect(addWallet({ name: 'UniqueWallet' })).rejects.toThrow();
   });
 });

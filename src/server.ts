@@ -17,6 +17,10 @@ import {
   deleteAsset,
   deletePrice,
   deleteTransaction,
+  addWallet,
+  getWallets,
+  updateWallet,
+  deleteWallet,
 } from './db';
 import { 
   AcbDataDecimal,
@@ -29,7 +33,8 @@ import {
   InsertionType,
   Price,
   Transaction,
-  TransactionType
+  TransactionType,
+  Wallet
 } from './types';
 import Papa from 'papaparse';
 import Decimal from 'decimal.js';
@@ -448,7 +453,9 @@ app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '2m
         fee_asset_symbol: row.fee_asset_symbol,
         fee_asset_quantity: row.fee_asset_quantity ? Number(row.fee_asset_quantity) : undefined,
         is_income: row.is_income === true || row.is_income === 'true' || row.is_income === 1 || row.is_income === '1',
-        notes: row.notes || ''
+        notes: row.notes || '',
+        from_wallet_id: row.from_wallet_id ? Number(row.from_wallet_id) : undefined,
+        to_wallet_id: row.to_wallet_id ? Number(row.to_wallet_id) : undefined
       };
       try { 
         await validateTransaction(tx);
@@ -883,6 +890,93 @@ function getPrice(symbol: string, priceCache: Record<string, Price>): number {
   }
   return priceCache[symbol].price;
 }
+
+// ==============
+// Wallets
+// ==============
+// Create
+app.post('/api/wallet', async (req, res) => {
+  const { name, description } = req.body;
+  if (!name) return res.status(400).json({ error: 'Wallet name is required' });
+  try {
+    res.json(await addWallet({ name, description }));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to create wallet' });
+  }
+});
+
+// Retrieve
+app.get('/api/wallets', async (req, res) => {
+  const { ids, names } = req.query;
+  res.json(await getWallets({
+    ids: ids?.length ? (ids as string).split(',').map(Number) : [],
+    names: names?.length ? (names as string).split(',') : []
+  }));
+});
+
+// Update
+app.put('/api/wallet/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, description } = req.body;
+  if (!name) return res.status(400).json({ error: 'Wallet name is required' });
+  try {
+    res.json(await updateWallet(Number(id), name, description));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update wallet' });
+  }
+});
+
+// Delete
+app.delete('/api/wallet/:id', async (req, res) => {
+  try {
+    res.json(await deleteWallet(Number(req.params.id)));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete wallet' });
+  }
+});
+
+// Wallet Balances - calculates asset balances for a given wallet based on transactions
+app.get('/api/wallet/:id/balances', async (req, res) => {
+  try {
+    const walletId = Number(req.params.id);
+    if (!walletId) return res.status(400).json({ error: 'Invalid wallet ID' });
+
+    const txs = await getTransactions({ wallet_id: walletId });
+    if (txs instanceof Error) return res.status(500).json({ error: txs.message });
+
+    // Calculate balances: incoming adds, outgoing subtracts
+    const balances: Record<string, number> = {};
+
+    for (const tx of txs) {
+      // Outgoing from this wallet (send side)
+      if (tx.from_wallet_id === walletId) {
+        if (tx.send_asset_symbol && tx.send_asset_quantity) {
+          balances[tx.send_asset_symbol] = (balances[tx.send_asset_symbol] || 0) - tx.send_asset_quantity;
+        }
+        // Fees paid from this wallet
+        if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
+          balances[tx.fee_asset_symbol] = (balances[tx.fee_asset_symbol] || 0) - tx.fee_asset_quantity;
+        }
+      }
+      // Incoming to this wallet (receive side)
+      if (tx.to_wallet_id === walletId) {
+        if (tx.receive_asset_symbol && tx.receive_asset_quantity) {
+          balances[tx.receive_asset_symbol] = (balances[tx.receive_asset_symbol] || 0) + tx.receive_asset_quantity;
+        }
+      }
+    }
+
+    // Return as array of { symbol, balance } sorted by symbol, filtering out zero balances
+    const result = Object.entries(balances)
+      .filter(([_, balance]) => Math.abs(balance) > 1e-10)
+      .map(([symbol, balance]) => ({ symbol, balance }))
+      .sort((a, b) => a.symbol.localeCompare(b.symbol));
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to calculate wallet balances' });
+  }
+});
 
 // ==============
 // Transaction Types API
