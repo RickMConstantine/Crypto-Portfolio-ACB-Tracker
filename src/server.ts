@@ -521,6 +521,67 @@ app.delete('/api/transaction/:id', async (req, res) => {
   res.json(await deleteTransaction(Number(req.params.id)));
 });
 
+// Bulk delete
+app.delete('/api/transactions/bulk', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || !ids.every(id => Number.isFinite(Number(id)))) {
+    return res.status(400).json({ error: 'Request body must include an "ids" array of numeric transaction IDs.' });
+  }
+  const numericIds = ids.map(Number);
+  if (!numericIds.length) return res.json({ deleted: 0 });
+  try {
+    let deleted = 0;
+    for (const id of numericIds) {
+      await deleteTransaction(id);
+      deleted++;
+    }
+    res.json({ deleted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to bulk delete transactions' });
+  }
+});
+
+// Bulk edit
+// Applies a partial update (patch) to all provided transaction IDs. All selected
+// transactions must share the same type and cannot have their type changed.
+app.patch('/api/transactions/bulk', async (req, res) => {
+  const { ids, patch } = req.body;
+  if (!Array.isArray(ids) || !ids.every(id => Number.isFinite(Number(id)))) {
+    return res.status(400).json({ error: 'Request body must include an "ids" array of numeric transaction IDs.' });
+  }
+  if (!patch || typeof patch !== 'object') {
+    return res.status(400).json({ error: 'Request body must include a "patch" object.' });
+  }
+  const numericIds = ids.map(Number);
+  if (!numericIds.length) return res.json({ updated: 0 });
+  if ('type' in patch) {
+    return res.status(400).json({ error: 'Bulk edit cannot change transaction type.' });
+  }
+  try {
+    const { items: existing } = await getTransactions({ ids: numericIds });
+    if (existing.length !== numericIds.length) {
+      return res.status(404).json({ error: 'One or more transactions not found.' });
+    }
+    const types = new Set(existing.map(t => t.type));
+    if (types.size > 1) {
+      return res.status(400).json({ error: 'Bulk edit requires all selected transactions to share the same type.' });
+    }
+    // Validate the merged row (existing + patch) so type-specific rules still apply,
+    // but only write the patched keys so we don't re-touch already-valid FK columns.
+    for (const tx of existing) {
+      await validateTransaction({ ...tx, ...patch });
+    }
+    let updated = 0;
+    for (const tx of existing) {
+      await updateTransaction(tx.id, patch);
+      updated++;
+    }
+    res.json({ updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to bulk edit transactions' });
+  }
+});
+
 // Transaction Helper Functions
 
 async function validateTransaction(transaction: Transaction | Omit<Transaction, 'id'>) {

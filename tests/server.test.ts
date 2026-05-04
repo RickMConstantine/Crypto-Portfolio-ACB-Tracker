@@ -38,6 +38,8 @@ jest.mock('../src/db', () => ({
   getPrices: GET_PRICES_MOCK,
   addTransaction: ADD_TRANSACTION_MOCK,
   getTransactions: GET_TRANSACTIONS_MOCK,
+  updateTransaction: ADD_TRANSACTION_MOCK,
+  deleteTransaction: ADD_TRANSACTION_MOCK,
   addWallet: WALLETS_ROW_MOCK,
   getWallets: GET_WALLETS_MOCK,
   updateWallet: WALLETS_ROW_MOCK,
@@ -316,6 +318,87 @@ describe('Express API endpoints (mocked db)', () => {
 
   it('GET /api/wallet/:id/balances returns 400 for invalid ID', async () => {
     const res = await request(app).get('/api/wallet/0/balances');
+    expect(res.status).toBe(400);
+  });
+
+  it('DELETE /api/transactions/bulk deletes multiple transactions', async () => {
+    const res = await request(app)
+      .delete('/api/transactions/bulk')
+      .send({ ids: [1, 2, 3] });
+    expect(res.status).toBe(200);
+    expect(res.body.deleted).toBe(3);
+  });
+
+  it('DELETE /api/transactions/bulk returns 400 for missing ids', async () => {
+    const res = await request(app)
+      .delete('/api/transactions/bulk')
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('DELETE /api/transactions/bulk returns 400 for non-numeric ids', async () => {
+    const res = await request(app)
+      .delete('/api/transactions/bulk')
+      .send({ ids: ['not-a-number'] });
+    expect(res.status).toBe(400);
+  });
+
+  it('PATCH /api/transactions/bulk applies patch when types match', async () => {
+    const { getTransactions } = require('../src/db');
+    (getTransactions as jest.Mock).mockResolvedValueOnce({
+      items: [
+        { ...TRANSACTIONS_ROW, id: 1 },
+        { ...TRANSACTIONS_ROW, id: 2 }
+      ],
+      total: 2
+    });
+    const res = await request(app)
+      .patch('/api/transactions/bulk')
+      .send({ ids: [1, 2], patch: { notes: 'Updated in bulk' } });
+    expect(res.status).toBe(200);
+    expect(res.body.updated).toBe(2);
+  });
+
+  it('PATCH /api/transactions/bulk rejects mixed types', async () => {
+    const { getTransactions } = require('../src/db');
+    (getTransactions as jest.Mock).mockResolvedValueOnce({
+      items: [
+        { ...TRANSACTIONS_ROW, id: 1, type: TransactionType.BUY },
+        { ...TRANSACTIONS_ROW, id: 2, type: TransactionType.SELL }
+      ],
+      total: 2
+    });
+    const res = await request(app)
+      .patch('/api/transactions/bulk')
+      .send({ ids: [1, 2], patch: { notes: 'Mixed types' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/same type/i);
+  });
+
+  it('PATCH /api/transactions/bulk rejects type change', async () => {
+    const res = await request(app)
+      .patch('/api/transactions/bulk')
+      .send({ ids: [1], patch: { type: 'Sell' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/cannot change transaction type/i);
+  });
+
+  it('PATCH /api/transactions/bulk returns 404 when any ID is missing', async () => {
+    const { getTransactions } = require('../src/db');
+    (getTransactions as jest.Mock).mockResolvedValueOnce({
+      items: [{ ...TRANSACTIONS_ROW, id: 1 }],
+      total: 1
+    });
+    const res = await request(app)
+      .patch('/api/transactions/bulk')
+      .send({ ids: [1, 999], patch: { notes: 'x' } });
+    expect(res.status).toBe(404);
+  });
+
+  it('PATCH /api/transactions/bulk returns 400 for invalid body', async () => {
+    const res = await request(app)
+      .patch('/api/transactions/bulk')
+      .send({ ids: [1] });
     expect(res.status).toBe(400);
   });
 });

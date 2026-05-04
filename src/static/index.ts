@@ -642,7 +642,8 @@ async function renderTransactions(): Promise<void> {
   const walletMap = Object.fromEntries(items.map(w => [w.id, w.name]));
 
   await fetchAndRenderPaginated<Transaction>(url, 'transactions-table', row =>
-    `<td>${row.id}</td><td>${getDateTimeString(row.unix_timestamp, false)}Z</td><td>${row.type}</td>
+    `<td><input type="checkbox" class="transaction-select" data-id="${row.id}" data-type="${row.type}"></td>
+      <td>${row.id}</td><td>${getDateTimeString(row.unix_timestamp, false)}Z</td><td>${row.type}</td>
       <td>${row.send_asset_symbol ?? ''}</td><td>${row.send_asset_quantity || ''}</td>
       <td>${row.receive_asset_symbol ?? ''}</td><td>${row.receive_asset_quantity || ''}</td>
       <td>${row.fee_asset_symbol ?? ''}</td><td>${row.fee_asset_quantity || ''}</td>
@@ -652,24 +653,35 @@ async function renderTransactions(): Promise<void> {
   ).then(() => {
     const rows = document.querySelectorAll<HTMLTableRowElement>('#transactions-table tbody tr');
     rows.forEach(tr => {
-      const id = tr.children[0].textContent || '';
+      const id = tr.children[1].textContent || '';
+      const checkbox = tr.children[0].querySelector('input.transaction-select') as HTMLInputElement;
+      if (checkbox) {
+        checkbox.checked = transactionSelection.has(Number(id));
+        checkbox.onclick = (e: Event) => {
+          e.stopPropagation();
+          const txId = Number(checkbox.dataset.id);
+          if (checkbox.checked) transactionSelection.set(txId, checkbox.dataset.type || '');
+          else transactionSelection.delete(txId);
+          updateTransactionSelectionBar();
+        };
+      }
       tr.onclick = async function () {
-        const fromWalletId = (tr.children[9] as HTMLTableCellElement).dataset.walletId;
-        const toWalletId = (tr.children[10] as HTMLTableCellElement).dataset.walletId;
+        const fromWalletId = (tr.children[10] as HTMLTableCellElement).dataset.walletId;
+        const toWalletId = (tr.children[11] as HTMLTableCellElement).dataset.walletId;
         let transaction = {
           id: Number(id),
-          unix_timestamp: Date.parse(tr.children[1].textContent || ''),
-          type: tr.children[2].textContent || '',
-          send_asset_symbol: tr.children[3].textContent || '',
-          send_asset_quantity: (tr.children[4].textContent !== '') ? Number(tr.children[4].textContent) : undefined,
-          receive_asset_symbol: tr.children[5].textContent || '',
-          receive_asset_quantity: (tr.children[6].textContent !== '') ? Number(tr.children[6].textContent) : undefined,
-          fee_asset_symbol: tr.children[7].textContent || '',
-          fee_asset_quantity: (tr.children[8].textContent !== '') ? Number(tr.children[8].textContent) : undefined,
+          unix_timestamp: Date.parse(tr.children[2].textContent || ''),
+          type: tr.children[3].textContent || '',
+          send_asset_symbol: tr.children[4].textContent || '',
+          send_asset_quantity: (tr.children[5].textContent !== '') ? Number(tr.children[5].textContent) : undefined,
+          receive_asset_symbol: tr.children[6].textContent || '',
+          receive_asset_quantity: (tr.children[7].textContent !== '') ? Number(tr.children[7].textContent) : undefined,
+          fee_asset_symbol: tr.children[8].textContent || '',
+          fee_asset_quantity: (tr.children[9].textContent !== '') ? Number(tr.children[9].textContent) : undefined,
           from_wallet_id: fromWalletId ? Number(fromWalletId) : undefined,
           to_wallet_id: toWalletId ? Number(toWalletId) : undefined,
-          is_income: tr.children[11].textContent === '✓',
-          notes: tr.children[12].textContent || ''
+          is_income: tr.children[12].textContent === '✓',
+          notes: tr.children[13].textContent || ''
         } as Transaction;
         showAddEditTransactionModal(transaction);
       };
@@ -682,9 +694,214 @@ async function renderTransactions(): Promise<void> {
         tr.title = '';
       };
     });
+    updateTransactionSelectionBar();
   });
 }
 renderTransactions();
+
+//=======================
+// Transactions: Selection + Bulk Edit
+//=======================
+// Map of selected transaction IDs to their type. Tracking the type lets the
+// selection bar correctly enable bulk edit even when selected rows are on
+// other pages (not present in the DOM).
+const transactionSelection = new Map<number, string>();
+
+function updateTransactionSelectionBar() {
+  const bar = document.getElementById('transactions-selection-bar') as HTMLElement;
+  const countEl = document.getElementById('transactions-selection-count') as HTMLElement;
+  const bulkEditBtn = document.getElementById('transactions-bulk-edit-btn') as HTMLButtonElement;
+  const bulkEditHint = document.getElementById('transactions-bulk-edit-hint') as HTMLElement;
+  const size = transactionSelection.size;
+  bar.style.display = size > 0 ? '' : 'none';
+  const visibleChecked = document.querySelectorAll<HTMLInputElement>(
+    '#transactions-table .transaction-select:checked'
+  ).length;
+  countEl.textContent = size === visibleChecked
+    ? `${size} selected`
+    : `${size} selected (${visibleChecked} on this page)`;
+
+  // Bulk edit requires that all selected rows share a single type. We read the
+  // types directly from the selection state so cross-page selections are
+  // evaluated correctly.
+  const types = new Set(transactionSelection.values());
+  const sameType = types.size === 1;
+  bulkEditBtn.disabled = size === 0 || !sameType;
+  bulkEditHint.style.display = size > 0 && !sameType ? '' : 'none';
+}
+
+// Select-all toggles only the visible rows on the current page.
+(document.getElementById('transactions-select-all') as HTMLInputElement).onclick = function(e: Event) {
+  const checked = (e.target as HTMLInputElement).checked;
+  const rowCheckboxes = document.querySelectorAll<HTMLInputElement>(
+    '#transactions-table .transaction-select'
+  );
+  rowCheckboxes.forEach(cb => {
+    cb.checked = checked;
+    const id = Number(cb.dataset.id);
+    if (checked) transactionSelection.set(id, cb.dataset.type || '');
+    else transactionSelection.delete(id);
+  });
+  updateTransactionSelectionBar();
+};
+
+(document.getElementById('transactions-clear-selection-btn') as HTMLButtonElement).onclick = function() {
+  transactionSelection.clear();
+  const rowCheckboxes = document.querySelectorAll<HTMLInputElement>(
+    '#transactions-table .transaction-select'
+  );
+  rowCheckboxes.forEach(cb => cb.checked = false);
+  (document.getElementById('transactions-select-all') as HTMLInputElement).checked = false;
+  updateTransactionSelectionBar();
+};
+
+(document.getElementById('transactions-bulk-delete-btn') as HTMLButtonElement).onclick = async function() {
+  if (!transactionSelection.size) return;
+  if (!confirm(`Delete ${transactionSelection.size} transaction(s)? This cannot be undone.`)) return;
+  try {
+    const resp = await fetch('/api/transactions/bulk', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(transactionSelection.keys()) })
+    });
+    if (!resp.ok) {
+      const msg = await resp.text();
+      throw new Error(msg || 'Failed to bulk delete');
+    }
+    transactionSelection.clear();
+    renderTransactions();
+  } catch (err: any) {
+    alert(err.message || 'Failed to bulk delete');
+  }
+};
+
+(document.getElementById('transactions-bulk-edit-btn') as HTMLButtonElement).onclick = function() {
+  showBulkEditModal();
+};
+
+function showBulkEditModal() {
+  const modal = document.getElementById('bulk-edit-transaction-modal') as HTMLElement;
+  const form = document.getElementById('bulk-edit-form') as HTMLFormElement;
+  const title = document.getElementById('bulk-edit-title') as HTMLElement;
+  const errorDiv = document.getElementById('bulk-edit-error') as HTMLElement;
+  const cancelBtn = document.getElementById('bulk-edit-cancel-btn') as HTMLButtonElement;
+
+  // Derive the single selected type directly from the selection state (so we
+  // correctly handle selections that span multiple pages).
+  const types = new Set(transactionSelection.values());
+  if (types.size !== 1) return;
+  const type = Array.from(types)[0];
+
+  form.reset();
+  errorDiv.textContent = '';
+  title.textContent = `Bulk Edit ${transactionSelection.size} ${type} Transaction${transactionSelection.size > 1 ? 's' : ''}`;
+
+  // form.reset() clears values but does not restore disabled state. Sync each paired
+  // control to its (now unchecked) apply checkbox so controls are disabled by default.
+  form.querySelectorAll<HTMLInputElement>('.bulk-apply').forEach(apply => {
+    const pairedName = (apply.name || '').replace(/^apply_/, '');
+    const paired = form.querySelector(`[name="${pairedName}"]:not(.bulk-apply)`) as HTMLInputElement | HTMLSelectElement | null;
+    if (paired) paired.disabled = !apply.checked;
+  });
+
+  // Populate asset/wallet dropdowns
+  populateAssetDropdowns([
+    document.getElementById('bulk-edit-send-asset-select') as HTMLSelectElement,
+    document.getElementById('bulk-edit-receive-asset-select') as HTMLSelectElement,
+    document.getElementById('bulk-edit-fee-asset-select') as HTMLSelectElement
+  ]);
+  populateWalletDropdowns([
+    document.getElementById('bulk-edit-from-wallet-select') as HTMLSelectElement,
+    document.getElementById('bulk-edit-to-wallet-select') as HTMLSelectElement
+  ]);
+
+  // Show/hide rows based on type (matching the single-edit modal's rules).
+  const dispositionTypes = ['Sell', 'Send', 'Trade'];
+  const acquisitionTypes = ['Buy', 'Receive'];
+  const visibility: Record<string, boolean> = {
+    send_asset_symbol:     type !== 'Receive',
+    send_asset_quantity:   type !== 'Receive',
+    receive_asset_symbol:  type !== 'Send',
+    receive_asset_quantity:type !== 'Send',
+    fee_asset_symbol:      type !== 'Receive',
+    fee_asset_quantity:    type !== 'Receive',
+    from_wallet_id:        dispositionTypes.includes(type) || type === 'Transfer',
+    to_wallet_id:          acquisitionTypes.includes(type) || type === 'Transfer',
+    is_income:             type === 'Receive',
+    notes:                 true
+  };
+  form.querySelectorAll('label').forEach(label => {
+    const control = label.querySelector('[name]:not(.bulk-apply)') as HTMLElement | null;
+    if (!control) return;
+    const name = control.getAttribute('name') || '';
+    (label as HTMLElement).style.display = visibility[name] ? '' : 'none';
+  });
+
+  // When an "apply" checkbox toggles, enable/disable the paired control
+  form.querySelectorAll<HTMLInputElement>('.bulk-apply').forEach(apply => {
+    const pairedName = (apply.name || '').replace(/^apply_/, '');
+    const paired = form.querySelector(`[name="${pairedName}"]:not(.bulk-apply)`) as HTMLInputElement | HTMLSelectElement | null;
+    apply.onchange = () => {
+      if (paired) paired.disabled = !apply.checked;
+    };
+  });
+
+  modal.classList.add('active');
+  cancelBtn.onclick = () => modal.classList.remove('active');
+
+  form.onsubmit = async function(e: Event) {
+    e.preventDefault();
+    errorDiv.textContent = '';
+    const fd = new FormData(form);
+    const numericFields = new Set([
+      'send_asset_quantity', 'receive_asset_quantity', 'fee_asset_quantity',
+      'from_wallet_id', 'to_wallet_id'
+    ]);
+    const patch: Record<string, any> = {};
+    // Only include fields whose "apply" checkbox is ticked
+    form.querySelectorAll<HTMLInputElement>('.bulk-apply').forEach(apply => {
+      if (!apply.checked) return;
+      const fieldName = (apply.name || '').replace(/^apply_/, '');
+      const paired = form.querySelector(`[name="${fieldName}"]:not(.bulk-apply)`) as HTMLInputElement | HTMLSelectElement | null;
+      if (!paired) return;
+      if ((paired as HTMLInputElement).type === 'checkbox') {
+        patch[fieldName] = (paired as HTMLInputElement).checked;
+        return;
+      }
+      const raw = fd.get(fieldName);
+      if (typeof raw !== 'string' || raw.trim() === '') {
+        patch[fieldName] = null;
+        return;
+      }
+      if (numericFields.has(fieldName)) {
+        const n = Number(raw);
+        patch[fieldName] = Number.isFinite(n) ? n : null;
+      } else {
+        patch[fieldName] = raw;
+      }
+    });
+    if (!Object.keys(patch).length) {
+      errorDiv.textContent = 'Tick at least one field to apply.';
+      return;
+    }
+    try {
+      const resp = await fetch('/api/transactions/bulk', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(transactionSelection.keys()), patch })
+      });
+      if (!resp.ok) {
+        const msg = await resp.text();
+        throw new Error(msg || 'Failed to bulk edit');
+      }
+      modal.classList.remove('active');
+      transactionSelection.clear();
+      renderTransactions();
+    } catch (err: any) {
+      errorDiv.textContent = err.message || 'Failed to bulk edit';
+    }
+  };
+}
 
 // Add/Import Transaction button logic
 (document.getElementById('open-add-import-modal-btn') as HTMLButtonElement).onclick = function() {

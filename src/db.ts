@@ -471,6 +471,7 @@ export async function addTransaction(
 
 // Retrieve
 export async function getTransactions(filters?: {
+  ids?: number[];
   asset?: string;
   type?: string;
   date_from?: number;
@@ -500,6 +501,11 @@ export async function getTransactions(filters?: {
     `;
     const params: any[] = [];
     if (filters) {
+      if (filters.ids?.length) {
+        const placeholders = filters.ids.map(() => '?').join(',');
+        sql += ` AND t.id IN (${placeholders})`;
+        params.push(...filters.ids);
+      }
       if (filters.asset) {
         sql += ' AND (t.send_asset_symbol = ? OR t.receive_asset_symbol = ? OR t.fee_asset_symbol = ?)';
         params.push(filters.asset, filters.asset, filters.asset);
