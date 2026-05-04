@@ -178,4 +178,30 @@ describe('DB functions', () => {
     if (assets instanceof Error) throw assets;
     expect(assets.some((a: Asset) => a.symbol === symbol)).toBeFalsy();
   });
+
+  it('should cascade delete prices when the referenced asset is deleted', async () => {
+    const assets = await getAssets();
+    const fiat = assets.find((a: Asset) => a.asset_type === AssetType.FIAT)?.symbol;
+    if (!fiat) throw new Error('No fiat asset found');
+    // Add a throwaway asset with an associated price
+    await addAsset({ name: 'Cascade', symbol: 'CAS', asset_type: AssetType.BLOCKCHAIN, launch_date: 1672531199000, logo_url: 'https://example.com/cas-logo.png' });
+    const date = new Date('2024-08-01');
+    await addPrice({ unix_timestamp: date.getTime(), price: 42, asset_symbol: 'CAS', fiat_symbol: fiat });
+    const beforePrices = await getPrices({ asset_symbol: 'CAS' });
+    expect(beforePrices.some((p: Price) => p.asset_symbol === 'CAS')).toBeTruthy();
+    await deleteAsset('CAS');
+    const afterPrices = await getPrices({ asset_symbol: 'CAS' });
+    expect(afterPrices.some((p: Price) => p.asset_symbol === 'CAS')).toBeFalsy();
+  });
+
+  it('should block asset deletion when the asset is referenced by a transaction', async () => {
+    const assets = await getAssets();
+    const btc = assets.find((a: Asset) => a.symbol === 'BTC');
+    if (!btc) throw new Error('BTC asset expected to exist from earlier tests');
+    // Earlier tests inserted a transaction that references BTC as send_asset_symbol.
+    await expect(deleteAsset('BTC')).rejects.toThrow();
+    // And the asset should still exist.
+    const after = await getAssets();
+    expect(after.some((a: Asset) => a.symbol === 'BTC')).toBeTruthy();
+  });
 });

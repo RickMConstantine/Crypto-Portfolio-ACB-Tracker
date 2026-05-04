@@ -22,6 +22,7 @@ export async function initDb(path: string): Promise<Database> {
       });
       db.exec(
         `
+          PRAGMA foreign_keys = ON;
           CREATE TABLE IF NOT EXISTS assets (
             symbol TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -34,8 +35,8 @@ export async function initDb(path: string): Promise<Database> {
             price REAL NOT NULL,
             asset_symbol TEXT NOT NULL,
             fiat_symbol TEXT NOT NULL,
-            FOREIGN KEY(asset_symbol) REFERENCES assets(symbol),
-            FOREIGN KEY(fiat_symbol) REFERENCES assets(symbol),
+            FOREIGN KEY(asset_symbol) REFERENCES assets(symbol) ON DELETE CASCADE,
+            FOREIGN KEY(fiat_symbol) REFERENCES assets(symbol) ON DELETE CASCADE,
             PRIMARY KEY (unix_timestamp, asset_symbol, fiat_symbol)
           );
           CREATE TABLE IF NOT EXISTS transactions (
@@ -195,18 +196,13 @@ export async function updateAsset(symbol: string, name: string, asset_type: Asse
 export async function deleteAsset(symbol: string): Promise<Asset[]> {
   return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
-    db.serialize(() => {
-      if (!db) return reject(new Error('DB not initialized'));
-      db.all('DELETE FROM prices WHERE asset_symbol = ? RETURNING *', [symbol], (err, rows) => {
-        if (err) return reject(err);
-        console.log(`Deleted ${rows.length} price entries for asset: ${symbol}`);
-      });
-      db.all('DELETE FROM assets WHERE symbol = ? RETURNING *', [symbol], (err, rows) => {
-        if (err) return reject(err);
-        if (!rows.length) return reject(new Error(`Failed to delete asset with symbol: ${symbol}`));
-        console.log(`Deleted asset: ${symbol}`);
-        resolve(rows);
-      });
+    // Associated prices are removed automatically via ON DELETE CASCADE.
+    // If any transaction references this asset, the DB raises a FK violation.
+    db.all('DELETE FROM assets WHERE symbol = ? RETURNING *', [symbol], (err, rows) => {
+      if (err) return reject(err);
+      if (!rows.length) return reject(new Error(`Failed to delete asset with symbol: ${symbol}`));
+      console.log(`Deleted asset: ${symbol}`);
+      resolve(rows);
     });
   });
 }
@@ -214,17 +210,11 @@ export async function deleteAsset(symbol: string): Promise<Asset[]> {
 export async function deleteAllAssets(): Promise<Asset[]> {
   return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
-    db.serialize(() => {
-      if (!db) return reject(new Error('DB not initialized'));
-      db.all('DELETE FROM prices RETURNING *', (err, rows) => {
-        if (err) return reject(err);
-        console.log(`Deleted ${rows.length} price entries`);
-      });
-      db.all('DELETE FROM assets RETURNING *', (err, rows) => {
-        if (err) return reject(err);
-        console.log(`Deleted ${rows.length} assets`);
-        resolve(rows);
-      });
+    // Associated prices are removed automatically via ON DELETE CASCADE.
+    db.all('DELETE FROM assets RETURNING *', (err, rows) => {
+      if (err) return reject(err);
+      console.log(`Deleted ${rows.length} assets`);
+      resolve(rows);
     });
   });
 }
