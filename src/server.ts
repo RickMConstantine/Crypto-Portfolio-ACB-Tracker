@@ -17,6 +17,10 @@ import {
   deleteAsset,
   deletePrice,
   deleteTransaction,
+  addWallet,
+  getWallets,
+  updateWallet,
+  deleteWallet,
 } from './db';
 import { 
   AcbDataDecimal,
@@ -29,7 +33,8 @@ import {
   InsertionType,
   Price,
   Transaction,
-  TransactionType
+  TransactionType,
+  Wallet
 } from './types';
 import Papa from 'papaparse';
 import Decimal from 'decimal.js';
@@ -87,11 +92,14 @@ app.post('/api/asset', async (req, res) => {
 
 // Retrieve
 app.get('/api/assets', async (req, res) => {
-  const { names, symbols, asset_types } = req.query;
+  const { names, symbols, asset_types, search, limit, offset } = req.query;
   res.json(await getAssets({
     names: names?.length ? (names as string).split(',') : [],
     symbols: symbols?.length ? (symbols as string).split(',') : [],
-    asset_types: asset_types?.length ? (asset_types as string).split(',') as AssetType[] : []
+    asset_types: asset_types?.length ? (asset_types as string).split(',') as AssetType[] : [],
+    search: search as string | undefined,
+    limit: limit !== undefined ? Number(limit) : undefined,
+    offset: offset !== undefined ? Number(offset) : undefined
   }));
 });
 
@@ -109,10 +117,10 @@ app.delete('/api/asset/:symbol', async (req, res) => {
 
 // Assets Helper Functions
 async function getAsset(symbol: string): Promise<Asset> {
-  const asset = await getAssets({symbols: [ symbol ]});
-  console.log(asset);
-  if (!asset.length) throw new Error(`No asset found for symbol ${asset!}`);
-  return asset[0];
+  const { items } = await getAssets({symbols: [ symbol ]});
+  console.log(items);
+  if (!items.length) throw new Error(`No asset found for symbol ${symbol}`);
+  return items[0];
 }
 
 async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Promise<Asset> {
@@ -123,9 +131,8 @@ async function addAssetBySymbolAndType(symbol: string, assetType: AssetType): Pr
     if (!(Object.values(AssetType)).includes(assetType)) throw new Error(`Invalid AssetType: ${assetType}`);
 
     // Check if asset already registered
-    const currAsset = await getAssets({ symbols: [ symbol ] });
-    if (currAsset instanceof Error) throw currAsset;
-    if (!!currAsset.length) {
+    const { items: currAsset } = await getAssets({ symbols: [ symbol ] });
+    if (currAsset.length) {
       console.log(`Asset already exists for symbol: ${symbol}, skipping addition.`);
       return currAsset[0];
     }
@@ -182,12 +189,14 @@ app.post('/api/price', async (req, res) => {
 
 // Retrieve
 app.get('/api/prices', async (req, res) => {
-  const { asset_symbol, fiat_symbol, date_from, date_to } = req.query;
+  const { asset_symbol, fiat_symbol, date_from, date_to, limit, offset } = req.query;
   res.json(await getPrices({
     asset_symbol: asset_symbol as string | undefined,
     fiat_symbol: fiat_symbol as string | undefined,
     date_from: date_from ? Number(date_from) : undefined,
-    date_to: date_to ? Number(date_to) : undefined
+    date_to: date_to ? Number(date_to) : undefined,
+    limit: limit !== undefined ? Number(limit) : undefined,
+    offset: offset !== undefined ? Number(offset) : undefined
   }));
 });
 
@@ -209,8 +218,7 @@ app.post('/api/asset/:symbol/refresh-prices', async (req, res) => {
     const { symbol } = req.params;
     if (!symbol) return res.status(400).json({ error: 'Missing asset symbol' });
 
-    const assets = await getAssets({ symbols: [ symbol ] });
-    if (assets instanceof Error) return res.status(500).json({ error: assets.message });
+    const { items: assets } = await getAssets({ symbols: [ symbol ] });
     if (!assets.length) return res.status(404).json({ error: 'Asset not found' });
 
     const asset = assets[0];
@@ -273,8 +281,7 @@ async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Pric
   console.log("insertHistoricalPricesUsingCoinDesk", symbol);
   try {
     if (!symbol) throw new Error('Symbol is required');
-    const fiat = await getAssets({ asset_types: [ AssetType.FIAT ] });
-    if (fiat instanceof Error) throw fiat;
+    const { items: fiat } = await getAssets({ asset_types: [ AssetType.FIAT ] });
     if (!fiat.length || !fiat[0].symbol) throw new Error('No fiat currency set. Please set a fiat currency before adding assets.');
     
     // Get Price History
@@ -307,7 +314,7 @@ async function insertHistoricalPricesUsingCoinDesk(symbol: string): Promise<Pric
         if (!minTs || entry.TIMESTAMP < minTs) minTs = entry.TIMESTAMP;
         return {
           unix_timestamp: entry.TIMESTAMP * 1000,
-          price: entry.CLOSE,
+          price: entry.HIGH,
           asset_symbol: symbol,
           fiat_symbol: fiat[0].symbol
         };
@@ -336,8 +343,7 @@ async function insertHistoricalPricesUsingFinage(symbol: string, startDate: Date
   console.log("insertHistoricalPricesUsingFinage", symbol, startDate, endDate);
   try {
     if (!symbol) throw new Error('Symbol is required');
-    const fiat = await getAssets({ asset_types: [ AssetType.FIAT ] });
-    if (fiat instanceof Error) throw fiat;
+    const { items: fiat } = await getAssets({ asset_types: [ AssetType.FIAT ] });
     if (!fiat.length || !fiat[0].symbol) throw new Error('No fiat currency set. Please set a fiat currency before adding assets.');
     
     // https://finage.co.uk/docs/api/crypto/crypto-aggregates-api
@@ -438,17 +444,20 @@ app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '2m
       } else {
         unix_timestamp = Number(unix_timestamp);
       }
+      const emptyToUndef = (v?: string) => (v?.trim() === '' ? undefined : v);
       const tx = {
         unix_timestamp,
         type: TransactionType[row.type?.toUpperCase() as keyof typeof TransactionType],
-        send_asset_symbol: row.send_asset_symbol,
+        send_asset_symbol: emptyToUndef(row.send_asset_symbol),
         send_asset_quantity: row.send_asset_quantity ? Number(row.send_asset_quantity) : undefined,
-        receive_asset_symbol: row.receive_asset_symbol,
+        receive_asset_symbol: emptyToUndef(row.receive_asset_symbol),
         receive_asset_quantity: row.receive_asset_quantity ? Number(row.receive_asset_quantity) : undefined,
-        fee_asset_symbol: row.fee_asset_symbol,
+        fee_asset_symbol: emptyToUndef(row.fee_asset_symbol),
         fee_asset_quantity: row.fee_asset_quantity ? Number(row.fee_asset_quantity) : undefined,
         is_income: row.is_income === true || row.is_income === 'true' || row.is_income === 1 || row.is_income === '1',
-        notes: row.notes || ''
+        notes: emptyToUndef(row.notes),
+        from_wallet_id: row.from_wallet_id ? Number(row.from_wallet_id) : undefined,
+        to_wallet_id: row.to_wallet_id ? Number(row.to_wallet_id) : undefined
       };
       try { 
         await validateTransaction(tx);
@@ -474,12 +483,15 @@ app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '2m
 
 // Retrieve
 app.get('/api/transactions', async (req, res) => {
-  const { asset, type, date_from, date_to } = req.query;
+  const { asset, type, date_from, date_to, wallet_id, limit, offset } = req.query;
   res.json(await getTransactions({
     asset: asset as string | undefined,
     type: type as string | undefined,
     date_from: date_from ? Number(date_from) : undefined,
-    date_to: date_to ? Number(date_to) : undefined
+    date_to: date_to ? Number(date_to) : undefined,
+    wallet_id: wallet_id ? Number(wallet_id) : undefined,
+    limit: limit !== undefined ? Number(limit) : undefined,
+    offset: offset !== undefined ? Number(offset) : undefined
   }));
 });
 
@@ -510,6 +522,7 @@ app.delete('/api/transaction/:id', async (req, res) => {
 });
 
 // Transaction Helper Functions
+
 async function validateTransaction(transaction: Transaction | Omit<Transaction, 'id'>) {
   if (!Object.values(TransactionType).includes(transaction.type)) {
     throw new Error(`Invalid transaction type. Allowed: ${Object.values(TransactionType).join(', ')}`);
@@ -527,26 +540,41 @@ async function validateTransaction(transaction: Transaction | Omit<Transaction, 
     if (transaction.send_asset_symbol || transaction.send_asset_quantity || !transaction.receive_asset_symbol || !transaction.receive_asset_quantity) {
       throw new Error('*Only* receive asset/symbol and quantity are required for Receive.');
     }
+  } else if (transaction.type === TransactionType.TRANSFER) {
+    if (!transaction.send_asset_symbol || !transaction.send_asset_quantity ||
+        !transaction.receive_asset_symbol || !transaction.receive_asset_quantity) {
+      throw new Error('Send and Receive asset/symbol and quantity are required for Transfer.');
+    }
+    if (transaction.send_asset_symbol !== transaction.receive_asset_symbol ||
+        transaction.send_asset_quantity !== transaction.receive_asset_quantity) {
+      throw new Error('Transfer Send and Receive asset/symbol and quantity must match.');
+    }
   }
 
   if (transaction.fee_asset_symbol && !transaction.fee_asset_quantity || !transaction.fee_asset_symbol && transaction.fee_asset_quantity) {
     throw new Error('Fee asset/symbol and quantity must be provided together.');
   }
 
-  const assets = await getAssets();
-  if (assets instanceof Error) {
-    throw new Error('Failed to fetch assets for validation.');
+  // Wallet validation: dispositions require a from_wallet, acquisitions require a to_wallet, transfers require both
+  const dispositionTypes = [TransactionType.SELL, TransactionType.SEND, TransactionType.TRADE];
+  const acquisitionTypes = [TransactionType.BUY, TransactionType.RECEIVE];
+  if (transaction.type === TransactionType.TRANSFER) {
+    if (!transaction.from_wallet_id || !transaction.to_wallet_id) {
+      throw new Error('Transfer requires both a From Wallet and a To Wallet.');
+    }
+    if (transaction.from_wallet_id === transaction.to_wallet_id) {
+      throw new Error('Transfer From Wallet and To Wallet must be different.');
+    }
+  } else if (dispositionTypes.includes(transaction.type)) {
+    if (transaction.to_wallet_id) {
+      throw new Error(`To Wallet is not allowed for ${transaction.type}.`);
+    }
+  } else if (acquisitionTypes.includes(transaction.type)) {
+    if (transaction.from_wallet_id) {
+      throw new Error(`From Wallet is not allowed for ${transaction.type}.`);
+    }
   }
-  const assetSymbols = new Set(assets.map((a: any) => a.symbol));
-  if (transaction.send_asset_symbol && !assetSymbols.has(transaction.send_asset_symbol)) {
-    throw new Error(`Send asset symbol '${transaction.send_asset_symbol}' does not exist in assets.`);
-  }
-  if (transaction.receive_asset_symbol && !assetSymbols.has(transaction.receive_asset_symbol)) {
-    throw new Error(`Receive asset symbol '${transaction.receive_asset_symbol}' does not exist in assets.`);
-  }
-  if (transaction.fee_asset_symbol && !assetSymbols.has(transaction.fee_asset_symbol)) {
-    throw new Error(`Fee asset symbol '${transaction.fee_asset_symbol}' does not exist in assets.`);
-  }
+  // Existence of referenced assets and wallets is enforced by FK constraints in the DB.
 }
 
 // ==============
@@ -555,8 +583,7 @@ async function validateTransaction(transaction: Transaction | Omit<Transaction, 
 // Retrieve
 app.get('/api/acb', async (req, res) => {
   try {
-    const assets = await getAssets();
-    if (assets instanceof Error) throw assets.message;
+    const { items: assets } = await getAssets();
     const results: Record<string, Record<string, AcbDataNumber>> = {};
     for (const asset of assets) {
       if (asset.asset_type === AssetType.FIAT) continue;
@@ -628,13 +655,12 @@ async function calculateACB(asset_symbol: string): Promise<Record<string, AcbDat
   const asset = await getAsset(asset_symbol);
 
   // Fetch fiat symbol (assume only one fiat asset)
-  const fiatAssets = await getAssets({ asset_types: [ AssetType.FIAT ] });
+  const { items: fiatAssets } = await getAssets({ asset_types: [ AssetType.FIAT ] });
   if (!fiatAssets.length) throw new Error('No fiat asset set');
   const fiat_symbol = fiatAssets[0].symbol;
 
   // Fetch all transactions where asset is send, receive, or fee asset, ordered by date
-  const txs = await getTransactions({ asset: asset_symbol });
-  if (txs instanceof Error) throw txs;
+  const { items: txs } = await getTransactions({ asset: asset_symbol });
 
   let acb = new Decimal(0);
   let totalUnits = new Decimal(0);
@@ -883,6 +909,102 @@ function getPrice(symbol: string, priceCache: Record<string, Price>): number {
   }
   return priceCache[symbol].price;
 }
+
+// ==============
+// Wallets
+// ==============
+// Create
+app.post('/api/wallet', async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Wallet name is required' });
+  try {
+    res.json(await addWallet({ name }));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to create wallet' });
+  }
+});
+
+// Retrieve
+app.get('/api/wallets', async (req, res) => {
+  const { ids, names } = req.query;
+  res.json(await getWallets({
+    ids: ids?.length ? (ids as string).split(',').map(Number) : [],
+    names: names?.length ? (names as string).split(',') : []
+  }));
+});
+
+// Update
+app.put('/api/wallet/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Wallet name is required' });
+  try {
+    res.json(await updateWallet(Number(id), name));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update wallet' });
+  }
+});
+
+// Delete
+app.delete('/api/wallet/:id', async (req, res) => {
+  try {
+    res.json(await deleteWallet(Number(req.params.id)));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete wallet' });
+  }
+});
+
+// Wallet Balances - calculates asset balances for a given wallet based on transactions.
+//
+// Rules (data-driven, no transaction-type checks):
+// - send_asset is debited from from_wallet
+// - receive_asset is credited to to_wallet
+// - fee_asset is debited from from_wallet
+// - Fiat assets are not tracked per wallet and are filtered out of the result.
+app.get('/api/wallet/:id/balances', async (req, res) => {
+  try {
+    const walletId = Number(req.params.id);
+    if (!walletId) return res.status(400).json({ error: 'Invalid wallet ID' });
+
+    const { items: txs } = await getTransactions({ wallet_id: walletId });
+
+    const { items: fiatAssets } = await getAssets({ asset_types: [AssetType.FIAT] });
+    const fiatSymbols = new Set(fiatAssets.map((a: any) => a.symbol));
+
+    const balances: Record<string, Decimal> = {};
+    const add = (symbol: string, quantity: number) => {
+      balances[symbol] = (balances[symbol] || new Decimal(0)).plus(quantity);
+    };
+
+    for (const tx of txs) {
+      if (tx.from_wallet_id === walletId) {
+        if (tx.send_asset_symbol && tx.send_asset_quantity) {
+          add(tx.send_asset_symbol, -tx.send_asset_quantity);
+        }
+        if (tx.fee_asset_symbol && tx.fee_asset_quantity) {
+          add(tx.fee_asset_symbol, -tx.fee_asset_quantity);
+        }
+      }
+
+      // When from_wallet_id is set and to_wallet_id is null, treat them as the same wallet
+      // (covers a Trade that debits and credits the same wallet). Safe in all cases because
+      // transactions without a receive asset won't credit anything.
+      const effectiveToWalletId = tx.to_wallet_id ?? tx.from_wallet_id;
+      if (effectiveToWalletId === walletId && tx.receive_asset_symbol && tx.receive_asset_quantity) {
+        add(tx.receive_asset_symbol, tx.receive_asset_quantity);
+      }
+    }
+
+    const result = Object.entries(balances)
+      .filter(([symbol]) => !fiatSymbols.has(symbol))
+      .map(([symbol, balance]) => ({ symbol, balance: balance.toNumber() }))
+      .sort((a, b) => a.symbol.localeCompare(b.symbol));
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to calculate wallet balances' });
+  }
+});
 
 // ==============
 // Transaction Types API

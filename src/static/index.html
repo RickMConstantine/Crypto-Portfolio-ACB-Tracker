@@ -91,6 +91,32 @@
     #edit-asset-modal #delete-asset-btn { margin-left: 1em; color: #fff; background: #d9534f; }
     #edit-asset-modal #refresh-prices-btn { margin-left: 1em; color: #fff; background: #f39c12; }
     #edit-asset-modal #edit-asset-error { color: red; margin-top: 0.5em; }
+    /* Wallet Modal styles */
+    #edit-wallet-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.3);
+      align-items: center;
+      justify-content: center;
+      z-index: 1300;
+    }
+    #edit-wallet-modal.active {
+      display: flex;
+    }
+    #edit-wallet-modal .modal-content {
+      background: #fff;
+      padding: 2em;
+      border-radius: 8px;
+      min-width: 350px;
+    }
+    #edit-wallet-modal label { display: block; margin-top: 0.5em; }
+    #edit-wallet-modal button { margin-top: 1em; }
+    #edit-wallet-modal #delete-wallet-btn { margin-left: 1em; color: #fff; background: #d9534f; }
+    #edit-wallet-modal #edit-wallet-error { color: red; margin-top: 0.5em; }
   </style>
 </head>
 <body>
@@ -99,6 +125,7 @@
     <div class="tab active" data-tab="assets">Assets</div>
     <div class="tab" data-tab="prices">Prices</div>
     <div class="tab" data-tab="transactions">Transactions</div>
+    <div class="tab" data-tab="wallets">Wallets</div>
     <div class="tab" data-tab="tax">Tax</div>
   </div>
   <!-- Asset Tab -->
@@ -131,6 +158,20 @@
     <div id="fiat-currency-error" style="color:red; margin-top:0.5em;"></div>
     <h2>Blockchain Assets</h2>
     <button id="open-edit-asset-modal-btn" style="margin-bottom:1em;">Add Asset</button>
+    <div id="assets-filters" style="margin-bottom:1em;">
+      <label>Search:
+        <input type="text" id="assets-filter-search" placeholder="Name or symbol">
+      </label>
+      <label>Type:
+        <select id="assets-filter-type">
+          <option value="blockchain,nft">All</option>
+          <option value="blockchain">Blockchain</option>
+          <option value="nft">NFT</option>
+        </select>
+      </label>
+      <button id="assets-filter-btn">Filter</button>
+      <button id="assets-filter-reset-btn" type="button">Reset</button>
+    </div>
     <table id="assets-table" border="1">
       <thead>
         <tr>
@@ -145,6 +186,19 @@
         <!-- Populated in index.js -->
       </tbody>
     </table>
+    <div id="assets-pagination" style="margin-top:0.5em; display:flex; gap:0.5em; align-items:center;">
+      <button id="assets-table-prev-page" type="button">Previous</button>
+      <span id="assets-table-page-info">Page 1</span>
+      <button id="assets-table-next-page" type="button">Next</button>
+      <label style="margin-left:1em;">Page Size:
+        <select id="assets-table-page-size">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </label>
+    </div>
   </div>
   <!-- Add/Edit Asset Modal -->
   <div id="edit-asset-modal" class="modal">
@@ -228,6 +282,19 @@
         <!-- Populated in index.js -->
       </tbody>
     </table>
+    <div id="prices-pagination" style="margin-top:0.5em; display:flex; gap:0.5em; align-items:center;">
+      <button id="prices-table-prev-page" type="button">Previous</button>
+      <span id="prices-table-page-info">Page 1</span>
+      <button id="prices-table-next-page" type="button">Next</button>
+      <label style="margin-left:1em;">Page Size:
+        <select id="prices-table-page-size">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </label>
+    </div>
   </div>
   <!-- Add/Edit Price Modal -->
   <div id="edit-price-modal">
@@ -241,7 +308,9 @@
           <input type="number" name="price" id="edit-price-value" placeholder="Price" required step="any">
         </label>
         <label>Asset Symbol:
-          <select name="asset_symbol" id="edit-price-asset-symbol" required></select>
+          <select name="asset_symbol" id="edit-price-asset-symbol" required>
+            <option value="">Select Asset</option>
+          </select>
         </label>
         <button type="submit">Save</button>
         <button type="button" id="delete-price-btn">Delete</button>
@@ -267,6 +336,12 @@
           <!-- Populated in index.js -->
         </select>
       </label>
+      <label>Wallet:
+        <select id="transactions-filter-wallet">
+          <option value="">All</option>
+          <!-- Populated in index.js -->
+        </select>
+      </label>
       <label>Date From:
         <input type="date" id="transactions-filter-date-from">
       </label>
@@ -283,6 +358,7 @@
           <th>Send Symbol</th><th>Send Qty</th>
           <th>Receive Symbol</th><th>Receive Qty</th>
           <th>Fee Symbol</th><th>Fee Qty</th>
+          <th>From Wallet</th><th>To Wallet</th>
           <th>Income</th><th>Notes</th>
         </tr>
       </thead>
@@ -290,6 +366,50 @@
         <!-- Populated in index.js -->
       </tbody>
     </table>
+    <div id="transactions-pagination" style="margin-top:0.5em; display:flex; gap:0.5em; align-items:center;">
+      <button id="transactions-table-prev-page" type="button">Previous</button>
+      <span id="transactions-table-page-info">Page 1</span>
+      <button id="transactions-table-next-page" type="button">Next</button>
+      <label style="margin-left:1em;">Page Size:
+        <select id="transactions-table-page-size">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <div class="tab-content" id="wallets-content" style="display:none;">
+    <h2>Wallets</h2>
+    <button id="open-edit-wallet-modal-btn" style="margin-bottom:1em;">Add Wallet</button>
+    <table id="wallets-table" border="1">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Balances</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated in index.js -->
+      </tbody>
+    </table>
+  </div>
+  <!-- Add/Edit Wallet Modal -->
+  <div id="edit-wallet-modal">
+    <div class="modal-content">
+      <h3 id="edit-wallet-title">Add Wallet</h3>
+      <form id="edit-wallet-form">
+        <label>Name:
+          <input type="text" name="name" id="edit-wallet-name" required>
+        </label>
+        <button type="submit" id="save-wallet-btn">Save</button>
+        <button type="button" id="delete-wallet-btn" style="display:none;">Delete</button>
+        <button type="button" id="cancel-edit-wallet-modal">Cancel</button>
+        <div id="edit-wallet-error" style="color:#d9534f;"></div>
+      </form>
+    </div>
   </div>
   <div class="tab-content" id="tax-content" style="display:none;">
     <h2>Asset Summary</h2>
@@ -339,25 +459,43 @@
           <input type="datetime-local" name="date" id="edit-date" step="1" required>
         </label>
         <label>Type:
-          <select name="type" id="edit-type-select" required></select>
+          <select name="type" id="edit-type-select" required>
+            <option value="">Select Type</option>
+          </select>
         </label>
         <label>Send Asset:
-          <select name="send_asset_symbol" id="edit-send-asset-select"></select>
+          <select name="send_asset_symbol" id="edit-send-asset-select">
+            <option value="">Select Asset</option>
+          </select>
         </label>
         <label>Send Qty:
           <input type="number" step="any" name="send_asset_quantity" id="edit-send-asset-quantity">
         </label>
         <label>Receive Asset:
-          <select name="receive_asset_symbol" id="edit-receive-asset-select"></select>
+          <select name="receive_asset_symbol" id="edit-receive-asset-select">
+            <option value="">Select Asset</option>
+          </select>
         </label>
         <label>Receive Qty:
           <input type="number" step="any" name="receive_asset_quantity" id="edit-receive-asset-quantity">
         </label>
         <label>Fee Asset:
-          <select name="fee_asset_symbol" id="edit-fee-asset-select"></select>
+          <select name="fee_asset_symbol" id="edit-fee-asset-select">
+            <option value="">Select Asset</option>
+          </select>
         </label>
         <label>Fee Qty:
           <input type="number" step="any" name="fee_asset_quantity" id="edit-fee-asset-quantity">
+        </label>
+        <label>From Wallet:
+          <select name="from_wallet_id" id="edit-from-wallet-select">
+            <option value="">None</option>
+          </select>
+        </label>
+        <label>To Wallet:
+          <select name="to_wallet_id" id="edit-to-wallet-select">
+            <option value="">None</option>
+          </select>
         </label>
         <label>Income:
           <input type="checkbox" name="is_income" id="edit-is-income">

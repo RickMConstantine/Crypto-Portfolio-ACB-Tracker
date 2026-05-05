@@ -11,7 +11,8 @@ export enum TransactionType {
     SELL = 'Sell',
     TRADE = 'Trade',
     SEND = 'Send',
-    RECEIVE = 'Receive'
+    RECEIVE = 'Receive',
+    TRANSFER = 'Transfer'
 }
 
 export enum InsertionType {
@@ -116,6 +117,13 @@ export interface Transaction {
     fee_asset_quantity?: number;
     is_income?: boolean;
     notes?: string;
+    from_wallet_id?: number;
+    to_wallet_id?: number;
+}
+
+export interface Wallet {
+    id: number;
+    name: string;
 }
 
 export interface AcbDataDecimal {
