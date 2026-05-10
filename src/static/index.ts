@@ -345,6 +345,50 @@ document.getElementById('open-edit-asset-modal-btn')?.addEventListener('click', 
   showAddEditAssetModal();
 });
 
+// Refresh All Prices button: iterates every blockchain asset and calls the single-asset
+// refresh endpoint. Processes sequentially to avoid hammering the external price API.
+document.getElementById('refresh-all-prices-btn')?.addEventListener('click', async function() {
+  const btn = document.getElementById('refresh-all-prices-btn') as HTMLButtonElement;
+  const status = document.getElementById('refresh-all-prices-status') as HTMLElement;
+  if (!confirm('Refresh prices for all blockchain assets? This may take a while.')) return;
+  btn.disabled = true;
+  status.style.color = '';
+  status.textContent = 'Loading assets…';
+  try {
+    // Fetch all blockchain assets. Use a large limit to avoid paginating.
+    const res = await fetch('/api/assets?asset_types=blockchain&limit=10000');
+    const { items: assets }: { items: Asset[] } = await res.json();
+    const total = assets.length;
+    const failures: Array<{ symbol: string; error: string }> = [];
+    for (let i = 0; i < total; i++) {
+      const { symbol } = assets[i];
+      status.textContent = `Refreshing ${i + 1}/${total}: ${symbol}…`;
+      try {
+        const resp = await fetch(`/api/asset/${encodeURIComponent(symbol)}/refresh-prices`, { method: 'POST' });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          failures.push({ symbol, error: body.error || resp.statusText });
+        }
+      } catch (err: any) {
+        failures.push({ symbol, error: err.message || String(err) });
+      }
+    }
+    renderPrices();
+    if (failures.length) {
+      status.style.color = 'red';
+      status.textContent = `Refreshed ${total - failures.length}/${total}. Failed: ${failures.map(f => `${f.symbol} (${f.error})`).join(', ')}`;
+    } else {
+      status.style.color = 'green';
+      status.textContent = `Refreshed prices for ${total} asset(s).`;
+    }
+  } catch (err: any) {
+    status.style.color = 'red';
+    status.textContent = err.message || 'Failed to refresh prices';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 function setDisable(selects: Array<HTMLInputElement | HTMLButtonElement>, disable = true) {
   selects.forEach(select => {
     if (select) select.disabled = disable;
