@@ -1,7 +1,7 @@
 import { Database } from 'sqlite3';
 import { mkdir, unlink } from 'fs';
 import { dirname } from 'path';
-import { AssetType, Asset, Price, Transaction, InsertionType } from './types';
+import { AssetType, Asset, Price, Transaction, Wallet, InsertionType } from './types';
 
 //=======================
 // Database Init
@@ -39,6 +39,10 @@ export async function initDb(path: string): Promise<Database> {
             FOREIGN KEY(fiat_symbol) REFERENCES assets(symbol) ON DELETE CASCADE,
             PRIMARY KEY (unix_timestamp, asset_symbol, fiat_symbol)
           );
+          CREATE TABLE IF NOT EXISTS wallets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+          );
           CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             unix_timestamp INTEGER NOT NULL,
@@ -51,9 +55,13 @@ export async function initDb(path: string): Promise<Database> {
             fee_asset_quantity REAL,
             is_income BOOLEAN,
             notes TEXT,
+            from_wallet_id INTEGER,
+            to_wallet_id INTEGER,
             FOREIGN KEY(send_asset_symbol) REFERENCES assets(symbol),
             FOREIGN KEY(receive_asset_symbol) REFERENCES assets(symbol),
-            FOREIGN KEY(fee_asset_symbol) REFERENCES assets(symbol)
+            FOREIGN KEY(fee_asset_symbol) REFERENCES assets(symbol),
+            FOREIGN KEY(from_wallet_id) REFERENCES wallets(id) ON DELETE SET NULL,
+            FOREIGN KEY(to_wallet_id) REFERENCES wallets(id) ON DELETE SET NULL
           );
         `,
         (err) => {
@@ -139,10 +147,15 @@ export async function getAssets(filters?: {
   names?: string[],
   symbols?: string[],
   asset_types?: AssetType[],
-}): Promise<Asset[]> {
-  return new Promise<any[]>((resolve, reject) => {
+  search?: string,
+  limit?: number,
+  offset?: number,
+}): Promise<{ items: Asset[], total: number }> {
+  return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
-    let sql = 'SELECT * FROM assets WHERE 1=1';
+    // COUNT(*) OVER() tacks the total (pre-LIMIT) onto each row so pagination is a
+    // single query.
+    let sql = 'SELECT *, COUNT(*) OVER() AS total FROM assets WHERE 1=1';
     const params: any[] = [];
     if (filters) {
       if (filters.names?.length) {
@@ -160,11 +173,26 @@ export async function getAssets(filters?: {
         sql += ` AND asset_type IN (${placeholders})`;
         params.push(...filters.asset_types);
       }
+      if (filters.search) {
+        sql += ' AND (symbol LIKE ? OR name LIKE ?)';
+        const like = `%${filters.search}%`;
+        params.push(like, like);
+      }
     }
     sql += ' ORDER BY symbol ASC';
-    db.all(sql, params, (err, rows) => {
+    if (filters?.limit !== undefined) {
+      sql += ' LIMIT ?';
+      params.push(filters.limit);
+      if (filters.offset !== undefined) {
+        sql += ' OFFSET ?';
+        params.push(filters.offset);
+      }
+    }
+    db.all(sql, params, (err, rows: any[]) => {
       if (err) return reject(err);
-      resolve(rows);
+      const total = rows.length ? rows[0].total : 0;
+      const items = rows.map(({ total, ...rest }) => rest);
+      resolve({ items, total });
     });
   });
 }
@@ -272,11 +300,16 @@ export async function getPrices(filters?: {
   fiat_symbol?: string;
   date_from?: number;
   date_to?: number;
-}): Promise<Price[]> {
-  return new Promise<any[]>((resolve, reject) => {
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: Price[], total: number }> {
+  return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
+    // COUNT(*) OVER() tacks the total (pre-LIMIT) onto each row so pagination is a
+    // single query.
     let sql = `
-      SELECT prices.*, a.logo_url AS asset_logo_url, f.logo_url AS fiat_logo_url
+      SELECT prices.*, a.logo_url AS asset_logo_url, f.logo_url AS fiat_logo_url,
+             COUNT(*) OVER() AS total
       FROM prices
       JOIN assets a ON prices.asset_symbol = a.symbol
       JOIN assets f ON prices.fiat_symbol = f.symbol
@@ -302,9 +335,19 @@ export async function getPrices(filters?: {
       }
     }
     sql += ' ORDER BY prices.unix_timestamp ASC';
-    db.all(sql, params, (err, rows) => {
+    if (filters?.limit !== undefined) {
+      sql += ' LIMIT ?';
+      params.push(filters.limit);
+      if (filters.offset !== undefined) {
+        sql += ' OFFSET ?';
+        params.push(filters.offset);
+      }
+    }
+    db.all(sql, params, (err, rows: any[]) => {
       if (err) return reject(err);
-      resolve(rows);
+      const total = rows.length ? rows[0].total : 0;
+      const items = rows.map(({ total, ...rest }) => rest);
+      resolve({ items, total });
     });
   });
 }
@@ -379,7 +422,9 @@ export async function addTransaction(
     fee_asset_symbol,
     fee_asset_quantity,
     is_income,
-    notes
+    notes,
+    from_wallet_id,
+    to_wallet_id
   }: Omit<Transaction, 'id'>
 ): Promise<Transaction[]> {
   return new Promise<any[]>((resolve, reject) => {
@@ -390,14 +435,14 @@ export async function addTransaction(
           unix_timestamp, type, send_asset_symbol, send_asset_quantity,
           receive_asset_symbol, receive_asset_quantity,
           fee_asset_symbol, fee_asset_quantity,
-          is_income, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
+          is_income, notes, from_wallet_id, to_wallet_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
       `,
       [
         unix_timestamp, type, send_asset_symbol, send_asset_quantity,
         receive_asset_symbol, receive_asset_quantity,
         fee_asset_symbol, fee_asset_quantity,
-        is_income, notes
+        is_income, notes, from_wallet_id, to_wallet_id
       ],
       (err, rows) => {
         if (err) return reject(err);
@@ -414,7 +459,9 @@ export async function addTransaction(
           fee_asset_symbol: ${(rows[0] as any).fee_asset_symbol}, 
           fee_asset_quantity: ${(rows[0] as any).fee_asset_quantity}, 
           is_income: ${(rows[0] as any).is_income}, 
-          notes: ${(rows[0] as any).notes}`
+          notes: ${(rows[0] as any).notes},
+          from_wallet_id: ${(rows[0] as any).from_wallet_id},
+          to_wallet_id: ${(rows[0] as any).to_wallet_id}`
         );
         resolve(rows);
       }
@@ -424,20 +471,28 @@ export async function addTransaction(
 
 // Retrieve
 export async function getTransactions(filters?: {
+  ids?: number[];
   asset?: string;
   type?: string;
   date_from?: number;
   date_to?: number;
-}): Promise<Transaction[]> {
-  return new Promise<any[]>((resolve, reject) => {
+  wallet_id?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: Transaction[], total: number }> {
+  return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
+    // COUNT(*) OVER() tacks the total (pre-LIMIT) onto each row so pagination is a
+    // single query.
     let sql = `
       SELECT
         t.id, t.unix_timestamp, t.type,
         t.send_asset_symbol, t.send_asset_quantity,
         t.receive_asset_symbol, t.receive_asset_quantity,
         t.fee_asset_symbol, t.fee_asset_quantity,
-        t.is_income, t.notes
+        t.is_income, t.notes,
+        t.from_wallet_id, t.to_wallet_id,
+        COUNT(*) OVER() AS total
       FROM transactions t
       LEFT JOIN assets sa ON t.send_asset_symbol = sa.symbol
       LEFT JOIN assets ra ON t.receive_asset_symbol = ra.symbol
@@ -446,6 +501,11 @@ export async function getTransactions(filters?: {
     `;
     const params: any[] = [];
     if (filters) {
+      if (filters.ids?.length) {
+        const placeholders = filters.ids.map(() => '?').join(',');
+        sql += ` AND t.id IN (${placeholders})`;
+        params.push(...filters.ids);
+      }
       if (filters.asset) {
         sql += ' AND (t.send_asset_symbol = ? OR t.receive_asset_symbol = ? OR t.fee_asset_symbol = ?)';
         params.push(filters.asset, filters.asset, filters.asset);
@@ -462,11 +522,25 @@ export async function getTransactions(filters?: {
         sql += ' AND t.unix_timestamp <= ?';
         params.push(filters.date_to);
       }
+      if (filters.wallet_id) {
+        sql += ' AND (t.from_wallet_id = ? OR t.to_wallet_id = ?)';
+        params.push(filters.wallet_id, filters.wallet_id);
+      }
     }
     sql += ' ORDER BY t.unix_timestamp ASC';
-    db.all(sql, params, (err, rows) => {
+    if (filters?.limit !== undefined) {
+      sql += ' LIMIT ?';
+      params.push(filters.limit);
+      if (filters.offset !== undefined) {
+        sql += ' OFFSET ?';
+        params.push(filters.offset);
+      }
+    }
+    db.all(sql, params, (err, rows: any[]) => {
       if (err) return reject(err);
-      resolve(rows);
+      const total = rows.length ? rows[0].total : 0;
+      const items = rows.map(({ total, ...rest }) => rest);
+      resolve({ items, total });
     });
   });
 }
@@ -518,6 +592,86 @@ export async function deleteTransaction(id: number): Promise<Transaction[]> {
       if (err) return reject(err);
       if (!rows.length) return reject(new Error('Failed to delete transaction.'));
       console.log(`Deleted transaction with id: ${id}`);
+      resolve(rows);
+    });
+  });
+}
+
+//=======================
+// Wallets
+//=======================
+// Create
+export async function addWallet({ name }: Omit<Wallet, 'id'>): Promise<Wallet[]> {
+  return new Promise<any[]>((resolve, reject) => {
+    if (!db) return reject(new Error('DB not initialized'));
+    db.all(
+      'INSERT INTO wallets (name) VALUES (?) RETURNING *',
+      [name],
+      (err, rows) => {
+        if (err) return reject(err);
+        if (!rows.length) return reject(new Error('Failed to insert wallet'));
+        console.log(`Inserted wallet: ${(rows[0] as any).name} (ID: ${(rows[0] as any).id})`);
+        resolve(rows);
+      }
+    );
+  });
+}
+
+// Retrieve
+export async function getWallets(filters?: { ids?: number[]; names?: string[] }): Promise<{ items: Wallet[]; total: number }> {
+  return new Promise((resolve, reject) => {
+    if (!db) return reject(new Error('DB not initialized'));
+    let sql = 'SELECT *, COUNT(*) OVER() AS total_count FROM wallets WHERE 1=1';
+    const params: any[] = [];
+    if (filters) {
+      if (filters.ids?.length) {
+        const placeholders = filters.ids.map(() => '?').join(',');
+        sql += ` AND id IN (${placeholders})`;
+        params.push(...filters.ids);
+      }
+      if (filters.names?.length) {
+        const placeholders = filters.names.map(() => '?').join(',');
+        sql += ` AND name IN (${placeholders})`;
+        params.push(...filters.names);
+      }
+    }
+    sql += ' ORDER BY name ASC';
+    db.all(sql, params, (err, rows: any[]) => {
+      if (err) return reject(err);
+      const total = rows.length ? rows[0].total_count : 0;
+      const items = rows.map(({ total_count, ...rest }) => rest as Wallet);
+      resolve({ items, total });
+    });
+  });
+}
+
+// Update
+export async function updateWallet(id: number, name: string): Promise<Wallet[]> {
+  return new Promise<any[]>((resolve, reject) => {
+    if (!db) return reject(new Error('DB not initialized'));
+    db.all(
+      'UPDATE wallets SET name = ? WHERE id = ? RETURNING *',
+      [name, id],
+      (err, rows) => {
+        if (err) return reject(err);
+        if (!rows.length) return reject(new Error('Failed to update wallet'));
+        console.log(`Updated wallet: ${(rows[0] as any).name} (ID: ${(rows[0] as any).id})`);
+        resolve(rows);
+      }
+    );
+  });
+}
+
+// Delete
+export async function deleteWallet(id: number): Promise<Wallet[]> {
+  return new Promise<any[]>((resolve, reject) => {
+    if (!db) return reject(new Error('DB not initialized'));
+    // Associated transaction wallet references are nulled automatically via
+    // ON DELETE SET NULL.
+    db.all('DELETE FROM wallets WHERE id = ? RETURNING *', [id], (err, rows) => {
+      if (err) return reject(err);
+      if (!rows.length) return reject(new Error('Failed to delete wallet'));
+      console.log(`Deleted wallet with id: ${id}`);
       resolve(rows);
     });
   });
