@@ -1,4 +1,5 @@
-import { Asset, Price, Transaction, Wallet, Paginated } from '../types';
+import { Asset, Price, Transaction, Wallet, Paginated, TransactionType } from '../types';
+import { getFieldRules } from '../transaction-rules';
 
 //=======================
 // Query Document
@@ -1358,7 +1359,7 @@ function validateTransactionFields(
   submitBtn: HTMLButtonElement,
   errorDiv: HTMLElement
 ): boolean {
-  const type = typeSelect.value;
+  const type = typeSelect.value as TransactionType;
   const sendSymbol = sendAssetSelect.value;
   const sendQty = sendQtyInput.value;
   const receiveSymbol = receiveAssetSelect.value;
@@ -1370,6 +1371,13 @@ function validateTransactionFields(
   let valid = true;
   if (errorDiv) errorDiv.textContent = '';
 
+  const isValidType = Object.values(TransactionType).includes(type);
+  if (!isValidType) {
+    submitBtn.disabled = true;
+    return false;
+  }
+  const rules = getFieldRules(type);
+
   // Show/hide a field (and its <label> wrapper); when hidden, clear its value.
   const toggleField = (el: HTMLInputElement | HTMLSelectElement, show: boolean) => {
     const label = el.closest('label') as HTMLElement | null;
@@ -1380,15 +1388,14 @@ function validateTransactionFields(
     }
   };
 
-  // Per-type field visibility (matches backend validation)
-  const dispositionTypes = ['Sell', 'Send', 'Trade'];
-  const acquisitionTypes = ['Buy', 'Receive'];
-  const showSend = type !== 'Receive';
-  const showReceive = type !== 'Send';
-  const showFee = type !== 'Receive';
-  const showFromWallet = dispositionTypes.includes(type) || type === 'Transfer';
-  const showToWallet = acquisitionTypes.includes(type) || type === 'Transfer';
-  const showIsIncome = type === 'Receive';
+  // Per-type field visibility is derived from the shared rules so client and
+  // server stay in sync. Fields are shown if they're required OR not forbidden.
+  const showSend = rules.requiresSend;
+  const showReceive = rules.requiresReceive;
+  const showFee = !rules.forbidsSend; // same rule: Receive hides fee too
+  const showFromWallet = !rules.forbidsFromWallet;
+  const showToWallet = !rules.forbidsToWallet;
+  const showIsIncome = rules.allowsIncome;
 
   toggleField(sendAssetSelect, showSend);
   toggleField(sendQtyInput, showSend);
@@ -1403,7 +1410,7 @@ function validateTransactionFields(
   // For Transfer, receive asset/quantity mirrors send and is read-only so the two can't
   // diverge. Keep the receive inputs visible but disabled (the mirror lets the user see
   // what will be submitted).
-  if (type === 'Transfer') {
+  if (rules.requiresMatchingSendReceive) {
     receiveAssetSelect.value = sendAssetSelect.value;
     receiveQtyInput.value = sendQtyInput.value;
     receiveAssetSelect.disabled = true;
@@ -1413,23 +1420,17 @@ function validateTransactionFields(
     receiveQtyInput.disabled = false;
   }
 
-  // Required-field checks by type
-  if (type === 'Buy' || type === 'Sell' || type === 'Trade' || type === 'Transfer') {
-    if (!sendSymbol || !sendQty || !receiveSymbol || !receiveQty) valid = false;
-  } else if (type === 'Send') {
-    if (!sendSymbol || !sendQty) valid = false;
-  } else if (type === 'Receive') {
-    if (!receiveSymbol || !receiveQty) valid = false;
-  } else {
+  // Required-field checks
+  if (rules.requiresSend && (!sendSymbol || !sendQty)) valid = false;
+  if (rules.requiresReceive && (!receiveSymbol || !receiveQty)) valid = false;
+
+  // Wallet rules
+  if (rules.requiresFromWallet && !fromWallet) valid = false;
+  if (rules.requiresToWallet && !toWallet) valid = false;
+  if (rules.requiresMatchingSendReceive && fromWallet && toWallet && fromWallet === toWallet) {
     valid = false;
   }
-  // Wallet rules
-  // Wallets are optional for most types; the server only requires them for Transfer
-  // (and rejects them entirely for the opposing direction). For Transfer, both
-  // wallets are required and must be different.
-  if (type === 'Transfer') {
-    if (!fromWallet || !toWallet || fromWallet === toWallet) valid = false;
-  }
+
   // Fee asset and qty must either both be set or both empty
   if ((feeAsset && !feeQty) || (!feeAsset && feeQty)) {
     valid = false;

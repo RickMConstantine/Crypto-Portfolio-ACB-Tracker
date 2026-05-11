@@ -22,6 +22,7 @@ import {
   deleteWallet,
 } from './db';
 import { calculateACB } from './acb';
+import { getFieldRules } from './transaction-rules';
 import { 
   AcbDataNumber,
   Asset,
@@ -586,24 +587,21 @@ async function validateTransaction(transaction: Transaction | Omit<Transaction, 
   if (!Object.values(TransactionType).includes(transaction.type)) {
     throw new Error(`Invalid transaction type. Allowed: ${Object.values(TransactionType).join(', ')}`);
   }
+  const rules = getFieldRules(transaction.type);
 
-  if ([TransactionType.BUY, TransactionType.SELL, TransactionType.TRADE].includes(transaction.type)) {
-    if (!transaction.send_asset_symbol || !transaction.send_asset_quantity || !transaction.receive_asset_symbol || !transaction.receive_asset_quantity) {
-      throw new Error('Send and Receive asset/symbol and quantity are required for Buy, Sell, or Trade.');
-    }
-  } else if (transaction.type === TransactionType.SEND) {
-    if (!transaction.send_asset_symbol || !transaction.send_asset_quantity || transaction.receive_asset_symbol || transaction.receive_asset_quantity) {
-      throw new Error('*Only* send asset/symbol and quantity are required for Send.');
-    }
-  } else if (transaction.type === TransactionType.RECEIVE) {
-    if (transaction.send_asset_symbol || transaction.send_asset_quantity || !transaction.receive_asset_symbol || !transaction.receive_asset_quantity) {
-      throw new Error('*Only* receive asset/symbol and quantity are required for Receive.');
-    }
-  } else if (transaction.type === TransactionType.TRANSFER) {
-    if (!transaction.send_asset_symbol || !transaction.send_asset_quantity ||
-        !transaction.receive_asset_symbol || !transaction.receive_asset_quantity) {
-      throw new Error('Send and Receive asset/symbol and quantity are required for Transfer.');
-    }
+  if (rules.requiresSend && (!transaction.send_asset_symbol || !transaction.send_asset_quantity)) {
+    throw new Error(`Send asset/symbol and quantity are required for ${transaction.type}.`);
+  }
+  if (rules.forbidsSend && (transaction.send_asset_symbol || transaction.send_asset_quantity)) {
+    throw new Error(`Send asset/symbol and quantity are not allowed for ${transaction.type}.`);
+  }
+  if (rules.requiresReceive && (!transaction.receive_asset_symbol || !transaction.receive_asset_quantity)) {
+    throw new Error(`Receive asset/symbol and quantity are required for ${transaction.type}.`);
+  }
+  if (rules.forbidsReceive && (transaction.receive_asset_symbol || transaction.receive_asset_quantity)) {
+    throw new Error(`Receive asset/symbol and quantity are not allowed for ${transaction.type}.`);
+  }
+  if (rules.requiresMatchingSendReceive) {
     if (transaction.send_asset_symbol !== transaction.receive_asset_symbol ||
         transaction.send_asset_quantity !== transaction.receive_asset_quantity) {
       throw new Error('Transfer Send and Receive asset/symbol and quantity must match.');
@@ -614,24 +612,24 @@ async function validateTransaction(transaction: Transaction | Omit<Transaction, 
     throw new Error('Fee asset/symbol and quantity must be provided together.');
   }
 
-  // Wallet validation: dispositions require a from_wallet, acquisitions require a to_wallet, transfers require both
-  const dispositionTypes = [TransactionType.SELL, TransactionType.SEND, TransactionType.TRADE];
-  const acquisitionTypes = [TransactionType.BUY, TransactionType.RECEIVE];
-  if (transaction.type === TransactionType.TRANSFER) {
-    if (!transaction.from_wallet_id || !transaction.to_wallet_id) {
-      throw new Error('Transfer requires both a From Wallet and a To Wallet.');
-    }
-    if (transaction.from_wallet_id === transaction.to_wallet_id) {
-      throw new Error('Transfer From Wallet and To Wallet must be different.');
-    }
-  } else if (dispositionTypes.includes(transaction.type)) {
-    if (transaction.to_wallet_id) {
-      throw new Error(`To Wallet is not allowed for ${transaction.type}.`);
-    }
-  } else if (acquisitionTypes.includes(transaction.type)) {
-    if (transaction.from_wallet_id) {
-      throw new Error(`From Wallet is not allowed for ${transaction.type}.`);
-    }
+  // Wallet validation
+  if (rules.requiresFromWallet && !transaction.from_wallet_id) {
+    throw new Error(`From Wallet is required for ${transaction.type}.`);
+  }
+  if (rules.forbidsFromWallet && transaction.from_wallet_id) {
+    throw new Error(`From Wallet is not allowed for ${transaction.type}.`);
+  }
+  if (rules.requiresToWallet && !transaction.to_wallet_id) {
+    throw new Error(`To Wallet is required for ${transaction.type}.`);
+  }
+  if (rules.forbidsToWallet && transaction.to_wallet_id) {
+    throw new Error(`To Wallet is not allowed for ${transaction.type}.`);
+  }
+  if (transaction.type === TransactionType.TRANSFER &&
+      transaction.from_wallet_id &&
+      transaction.to_wallet_id &&
+      transaction.from_wallet_id === transaction.to_wallet_id) {
+    throw new Error('Transfer From Wallet and To Wallet must be different.');
   }
   // Existence of referenced assets and wallets is enforced by FK constraints in the DB.
 }

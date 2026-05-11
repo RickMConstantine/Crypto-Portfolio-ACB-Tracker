@@ -232,7 +232,7 @@ describe('Express API endpoints (mocked db)', () => {
     };
     const res = await request(app).post('/api/transaction').send(transferTx);
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Send and Receive asset\/symbol and quantity are required for Transfer/i);
+    expect(res.body.error).toMatch(/Receive asset\/symbol and quantity are required for Transfer/i);
   });
 
   it('POST /api/transaction with TRANSFER fails when send/receive do not match', async () => {
@@ -248,7 +248,7 @@ describe('Express API endpoints (mocked db)', () => {
     };
     const res = await request(app).post('/api/transaction').send(transferTx);
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Send and Receive asset\/symbol and quantity must match/i);
+    expect(res.body.error).toMatch(/Transfer Send and Receive asset\/symbol and quantity must match/i);
   });
 
   it('POST /api/transaction with TRANSFER fails when to_wallet missing', async () => {
@@ -263,7 +263,7 @@ describe('Express API endpoints (mocked db)', () => {
     };
     const res = await request(app).post('/api/transaction').send(transferTx);
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Transfer requires both/i);
+    expect(res.body.error).toMatch(/To Wallet is required for Transfer/i);
   });
 
   it('POST /api/transaction with BUY rejects from_wallet_id', async () => {
