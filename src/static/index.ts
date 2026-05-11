@@ -396,25 +396,35 @@ function setDisable(selects: Array<HTMLInputElement | HTMLButtonElement>, disabl
   });
 }
 
-async function populateAssetDropdowns(selects: Array<HTMLSelectElement | null>, assetType?: string) {
-  const res = await fetch(`/api/assets${assetType ? `?asset_types=${assetType}` : ''}`);
-  const { items: assets }: Paginated<Asset> = await res.json();
+// Generic dropdown populator. Preserves the first (default) <option> defined in
+// HTML and replaces the rest with `items`. Keeps the user's current selection
+// across re-renders so switching tabs doesn't blow away filter state.
+function populateDropdowns<T>(
+  selects: Array<HTMLSelectElement | null>,
+  items: T[],
+  getValue: (item: T) => string,
+  getLabel: (item: T) => string
+) {
   selects.forEach(select => {
     if (!select) return;
-    // Preserve the current selection so repopulating doesn't reset it.
     const previous = select.value;
-    // Preserve the first (default) option and replace the rest.
     while (select.options.length > 1) select.remove(1);
-    assets.forEach(asset => {
+    items.forEach(item => {
       const opt = document.createElement('option');
-      opt.value = asset.symbol;
-      opt.textContent = `${asset.name} (${asset.symbol})`;
+      opt.value = getValue(item);
+      opt.textContent = getLabel(item);
       select.appendChild(opt);
     });
     if (previous && Array.from(select.options).some(o => o.value === previous)) {
       select.value = previous;
     }
   });
+}
+
+async function populateAssetDropdowns(selects: Array<HTMLSelectElement | null>, assetType?: string) {
+  const res = await fetch(`/api/assets${assetType ? `?asset_types=${assetType}` : ''}`);
+  const { items: assets }: Paginated<Asset> = await res.json();
+  populateDropdowns(selects, assets, a => a.symbol, a => `${a.name} (${a.symbol})`);
 }
 
 function populateAllAssetDropdowns() {
@@ -1156,21 +1166,7 @@ function showAddEditTransactionModal(transaction?: Transaction) {
 
 async function populateTransactionTypes(selects: Array<HTMLSelectElement>) {
   const types: string[] = await fetch('/api/transaction-types').then(r => r.json());
-  selects.forEach(select => {
-    // Preserve the current selection so repopulating doesn't reset it.
-    const previous = select.value;
-    // Preserve the first (default) option and replace the rest.
-    while (select.options.length > 1) select.remove(1);
-    types.forEach(type => {
-      const opt = document.createElement('option');
-      opt.value = type;
-      opt.textContent = type;
-      select.appendChild(opt);
-    });
-    if (previous && Array.from(select.options).some(o => o.value === previous)) {
-      select.value = previous;
-    }
-  });
+  populateDropdowns(selects, types, t => t, t => t);
 }
 
 function populateAllTransactionTypeDropdowns() {
@@ -1185,22 +1181,7 @@ populateAllTransactionTypeDropdowns();
 async function populateWalletDropdowns(selects: Array<HTMLSelectElement | null>) {
   const res = await fetch('/api/wallets');
   const { items: wallets }: Paginated<Wallet> = await res.json();
-  selects.forEach(select => {
-    if (!select) return;
-    // Preserve the current selection so repopulating doesn't reset it.
-    const previous = select.value;
-    // Preserve the first (default) option and replace the rest.
-    while (select.options.length > 1) select.remove(1);
-    wallets.forEach(wallet => {
-      const opt = document.createElement('option');
-      opt.value = wallet.name;
-      opt.textContent = wallet.name;
-      select.appendChild(opt);
-    });
-    if (previous && Array.from(select.options).some(o => o.value === previous)) {
-      select.value = previous;
-    }
-  });
+  populateDropdowns(selects, wallets, w => w.name, w => w.name);
 }
 
 function populateAllWalletDropdowns() {
