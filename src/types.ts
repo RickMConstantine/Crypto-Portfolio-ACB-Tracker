@@ -126,6 +126,14 @@ export interface Wallet {
     name: string;
 }
 
+// Envelope returned by all paginated DB queries and HTTP endpoints. `items` holds
+// the current page of rows; `total` is the unfiltered row count (computed via
+// SQLite's COUNT(*) OVER() window function so it stays in a single query).
+export interface Paginated<T> {
+    items: T[];
+    total: number;
+}
+
 export interface AcbDataDecimal {
     acb: Decimal;
     totalUnits: Decimal;
