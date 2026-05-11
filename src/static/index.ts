@@ -1,4 +1,4 @@
-import { Asset, Price, Transaction, Wallet } from '../types';
+import { Asset, Price, Transaction, Wallet, Paginated } from '../types';
 
 //=======================
 // Query Document
@@ -50,7 +50,7 @@ async function fetchAndRender<T>(
   requestInit: RequestInit = {}
 ): Promise<void> {
   const res = await fetch(url, requestInit);
-  const { items }: { items: T[] } = await res.json();
+  const { items }: Paginated<T> = await res.json();
   const tbody = document.querySelector(`#${tableId} tbody`) as HTMLTableSectionElement;
   tbody.innerHTML = '';
   // Populate table rows
@@ -80,7 +80,7 @@ async function fetchAndRenderPaginated<T>(
   const offset = (state.page - 1) * state.pageSize;
   const url = baseUrl + (baseUrl.includes('?') ? '&' : '?') + `limit=${state.pageSize}&offset=${offset}`;
   const res = await fetch(url, requestInit);
-  const { items, total }: { items: T[], total: number } = await res.json();
+  const { items, total }: Paginated<T> = await res.json();
   const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
   // Clamp current page in case data shrank and re-fetch once
   if (state.page > totalPages) {
@@ -358,7 +358,7 @@ refreshAllPricesBtn?.addEventListener('click', async function() {
   try {
     // Fetch all blockchain assets. Use a large limit to avoid paginating.
     const res = await fetch('/api/assets?asset_types=blockchain&limit=10000');
-    const { items: assets }: { items: Asset[] } = await res.json();
+    const { items: assets }: Paginated<Asset> = await res.json();
     const total = assets.length;
     const failures: Array<{ symbol: string; error: string }> = [];
     for (let i = 0; i < total; i++) {
@@ -398,7 +398,7 @@ function setDisable(selects: Array<HTMLInputElement | HTMLButtonElement>, disabl
 
 async function populateAssetDropdowns(selects: Array<HTMLSelectElement | null>, assetType?: string) {
   const res = await fetch(`/api/assets${assetType ? `?asset_types=${assetType}` : ''}`);
-  const { items: assets }: { items: any[] } = await res.json();
+  const { items: assets }: Paginated<Asset> = await res.json();
   selects.forEach(select => {
     if (!select) return;
     // Preserve the current selection so repopulating doesn't reset it.
@@ -1184,7 +1184,7 @@ populateAllTransactionTypeDropdowns();
 // Wallet dropdown helper
 async function populateWalletDropdowns(selects: Array<HTMLSelectElement | null>) {
   const res = await fetch('/api/wallets');
-  const { items: wallets }: { items: Wallet[] } = await res.json();
+  const { items: wallets }: Paginated<Wallet> = await res.json();
   selects.forEach(select => {
     if (!select) return;
     // Preserve the current selection so repopulating doesn't reset it.
