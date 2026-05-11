@@ -758,7 +758,7 @@ function updateTransactionSelectionBar() {
   const bulkEditBtn = document.getElementById('transactions-bulk-edit-btn') as HTMLButtonElement;
   const bulkEditHint = document.getElementById('transactions-bulk-edit-hint') as HTMLElement;
   const size = transactionSelection.size;
-  bar.style.display = size > 0 ? '' : 'none';
+  bar.classList.toggle('active', size > 0);
   const visibleChecked = document.querySelectorAll<HTMLInputElement>(
     '#transactions-table .transaction-select:checked'
   ).length;
@@ -772,7 +772,7 @@ function updateTransactionSelectionBar() {
   const types = new Set(transactionSelection.values());
   const sameType = types.size === 1;
   bulkEditBtn.disabled = size === 0 || !sameType;
-  bulkEditHint.style.display = size > 0 && !sameType ? '' : 'none';
+  bulkEditHint.classList.toggle('active', size > 0 && !sameType);
 }
 
 // Select-all toggles only the visible rows on the current page.
