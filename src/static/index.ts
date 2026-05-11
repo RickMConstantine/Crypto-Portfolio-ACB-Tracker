@@ -347,13 +347,14 @@ document.getElementById('open-edit-asset-modal-btn')?.addEventListener('click', 
 
 // Refresh All Prices button: iterates every blockchain asset and calls the single-asset
 // refresh endpoint. Processes sequentially to avoid hammering the external price API.
-document.getElementById('refresh-all-prices-btn')?.addEventListener('click', async function() {
-  const btn = document.getElementById('refresh-all-prices-btn') as HTMLButtonElement;
-  const status = document.getElementById('refresh-all-prices-status') as HTMLElement;
+const refreshAllPricesBtn = document.getElementById('refresh-all-prices-btn') as HTMLButtonElement | null;
+const refreshAllPricesStatus = document.getElementById('refresh-all-prices-status') as HTMLElement | null;
+refreshAllPricesBtn?.addEventListener('click', async function() {
+  if (!refreshAllPricesBtn || !refreshAllPricesStatus) return;
   if (!confirm('Refresh prices for all blockchain assets? This may take a while.')) return;
-  btn.disabled = true;
-  status.style.color = '';
-  status.textContent = 'Loading assets…';
+  refreshAllPricesBtn.disabled = true;
+  refreshAllPricesStatus.style.color = '';
+  refreshAllPricesStatus.textContent = 'Loading assets…';
   try {
     // Fetch all blockchain assets. Use a large limit to avoid paginating.
     const res = await fetch('/api/assets?asset_types=blockchain&limit=10000');
@@ -362,7 +363,7 @@ document.getElementById('refresh-all-prices-btn')?.addEventListener('click', asy
     const failures: Array<{ symbol: string; error: string }> = [];
     for (let i = 0; i < total; i++) {
       const { symbol } = assets[i];
-      status.textContent = `Refreshing ${i + 1}/${total}: ${symbol}…`;
+      refreshAllPricesStatus.textContent = `Refreshing ${i + 1}/${total}: ${symbol}…`;
       try {
         const resp = await fetch(`/api/asset/${encodeURIComponent(symbol)}/refresh-prices`, { method: 'POST' });
         if (!resp.ok) {
@@ -375,17 +376,17 @@ document.getElementById('refresh-all-prices-btn')?.addEventListener('click', asy
     }
     renderPrices();
     if (failures.length) {
-      status.style.color = 'red';
-      status.textContent = `Refreshed ${total - failures.length}/${total}. Failed: ${failures.map(f => `${f.symbol} (${f.error})`).join(', ')}`;
+      refreshAllPricesStatus.style.color = 'red';
+      refreshAllPricesStatus.textContent = `Refreshed ${total - failures.length}/${total}. Failed: ${failures.map(f => `${f.symbol} (${f.error})`).join(', ')}`;
     } else {
-      status.style.color = 'green';
-      status.textContent = `Refreshed prices for ${total} asset(s).`;
+      refreshAllPricesStatus.style.color = 'green';
+      refreshAllPricesStatus.textContent = `Refreshed prices for ${total} asset(s).`;
     }
   } catch (err: any) {
-    status.style.color = 'red';
-    status.textContent = err.message || 'Failed to refresh prices';
+    refreshAllPricesStatus.style.color = 'red';
+    refreshAllPricesStatus.textContent = err.message || 'Failed to refresh prices';
   } finally {
-    btn.disabled = false;
+    refreshAllPricesBtn.disabled = false;
   }
 });
 
@@ -997,16 +998,18 @@ function showAddEditTransactionModal(transaction?: Transaction) {
   const deleteBtn = document.getElementById('delete-transaction-btn') as HTMLButtonElement;
   const title = document.getElementById('edit-transaction-title') as HTMLElement;
   const form = document.getElementById('edit-transaction-form') as HTMLFormElement;
+  const dateInput = document.getElementById('edit-date') as HTMLInputElement;
   const typeSelect = document.getElementById('edit-type-select') as HTMLSelectElement;
   const sendSelect = document.getElementById('edit-send-asset-select') as HTMLSelectElement;
   const sendQty = document.getElementById('edit-send-asset-quantity') as HTMLInputElement;
   const receiveSelect = document.getElementById('edit-receive-asset-select') as HTMLSelectElement;
   const receiveQty = document.getElementById('edit-receive-asset-quantity') as HTMLInputElement;
   const feeAssetSelect = document.getElementById('edit-fee-asset-select') as HTMLSelectElement;
-  const feeAssetQty = form.querySelector('input[name="fee_asset_quantity"]') as HTMLInputElement;
+  const feeAssetQty = document.getElementById('edit-fee-asset-quantity') as HTMLInputElement;
   const fromWalletSelect = document.getElementById('edit-from-wallet-select') as HTMLSelectElement;
   const toWalletSelect = document.getElementById('edit-to-wallet-select') as HTMLSelectElement;
   const isIncomeInput = document.getElementById('edit-is-income') as HTMLInputElement;
+  const notesInput = document.getElementById('edit-notes') as HTMLInputElement;
   const saveBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
   const errorDiv = document.getElementById('edit-transaction-error') as HTMLElement;
   // Show modal
@@ -1030,6 +1033,7 @@ function showAddEditTransactionModal(transaction?: Transaction) {
   }
 
   let method: string | null = null;
+  errorDiv.textContent = '';
   if (!transaction) {
     // Add mode
     method = 'POST';
@@ -1037,30 +1041,27 @@ function showAddEditTransactionModal(transaction?: Transaction) {
     importContainer.style.display = '';
     deleteBtn.style.display = 'none';
     form.reset();
-    (document.getElementById('edit-date') as HTMLInputElement).value = getDateTimeString(Date.now(), true);
-    (document.getElementById('edit-transaction-error') as HTMLElement).textContent = '';
-    validateAddEditTransactionForm();
+    dateInput.value = getDateTimeString(Date.now(), true);
   } else {
     // Edit mode
     method = 'PUT';
     title.textContent = `Edit Transaction #${transaction.id}`;
     importContainer.style.display = 'none';
     deleteBtn.style.display = '';
-    (document.getElementById('edit-date') as HTMLInputElement).value = transaction.unix_timestamp ? getDateTimeString(transaction.unix_timestamp, false) : '';
-    (document.getElementById('edit-type-select') as HTMLSelectElement).value = transaction.type || '';
-    (document.getElementById('edit-send-asset-select') as HTMLSelectElement).value = transaction.send_asset_symbol || '';
-    (document.getElementById('edit-send-asset-quantity') as HTMLInputElement).value = transaction.send_asset_quantity != null ? String(transaction.send_asset_quantity) : '';
-    (document.getElementById('edit-receive-asset-select') as HTMLSelectElement).value = transaction.receive_asset_symbol || '';
-    (document.getElementById('edit-receive-asset-quantity') as HTMLInputElement).value = transaction.receive_asset_quantity != null ? String(transaction.receive_asset_quantity) : '';
-    (document.getElementById('edit-fee-asset-select') as HTMLSelectElement).value = transaction.fee_asset_symbol || '';
-    (document.getElementById('edit-fee-asset-quantity') as HTMLInputElement).value = transaction.fee_asset_quantity != null ? String(transaction.fee_asset_quantity) : '';
-    (document.getElementById('edit-is-income') as HTMLInputElement).checked = !!transaction.is_income;
-    (document.getElementById('edit-notes') as HTMLInputElement).value = transaction.notes || '';
+    dateInput.value = transaction.unix_timestamp ? getDateTimeString(transaction.unix_timestamp, false) : '';
+    typeSelect.value = transaction.type || '';
+    sendSelect.value = transaction.send_asset_symbol || '';
+    sendQty.value = transaction.send_asset_quantity != null ? String(transaction.send_asset_quantity) : '';
+    receiveSelect.value = transaction.receive_asset_symbol || '';
+    receiveQty.value = transaction.receive_asset_quantity != null ? String(transaction.receive_asset_quantity) : '';
+    feeAssetSelect.value = transaction.fee_asset_symbol || '';
+    feeAssetQty.value = transaction.fee_asset_quantity != null ? String(transaction.fee_asset_quantity) : '';
+    isIncomeInput.checked = !!transaction.is_income;
+    notesInput.value = transaction.notes || '';
     fromWalletSelect.value = transaction.from_wallet_id ? String(transaction.from_wallet_id) : '';
     toWalletSelect.value = transaction.to_wallet_id ? String(transaction.to_wallet_id) : '';
-    (document.getElementById('edit-transaction-error') as HTMLElement).textContent = '';
-    validateAddEditTransactionForm();
   }
+  validateAddEditTransactionForm();
   // Validation
   [typeSelect, sendSelect, receiveSelect, feeAssetSelect, fromWalletSelect, toWalletSelect, isIncomeInput].forEach(el => {
     el.addEventListener('change', validateAddEditTransactionForm);
@@ -1074,6 +1075,15 @@ function showAddEditTransactionModal(transaction?: Transaction) {
     errorDiv.textContent = '';
     // Convert form inputs to typed payload fields. Empty selects / inputs become null so
     // FK-constrained columns stay NULL instead of ''.
+    //
+    // For Transfer, the receive fields are disabled (mirrored from send in the UI), and
+    // FormData() skips disabled controls. Read their values directly from the DOM so the
+    // mirrored send→receive payload makes it to the server.
+    const type = fd.get('type');
+    if (type === 'Transfer') {
+      fd.set('receive_asset_symbol', receiveSelect.value);
+      fd.set('receive_asset_quantity', receiveQty.value);
+    }
     const str = (name: string) => {
       const v = fd.get(name);
       return typeof v === 'string' && v.trim() !== '' ? v : null;
