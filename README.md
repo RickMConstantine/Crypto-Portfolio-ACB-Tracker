@@ -28,7 +28,7 @@ This application is a full-stack web app for tracking your cryptocurrency asset 
 
 ## Development Note
 
-This app was developed with the assistance of [GitHub Copilot](https://github.com/features/copilot).
+This app was developed with the assistance of [GitHub Copilot](https://github.com/features/copilot) and [Kiro](https://kiro.dev).
 
 ## Installation
 
