@@ -141,6 +141,10 @@ The `examples` directory contains sample SQLite databases for testing and demons
 
 You can use these files to experiment with the app and verify ACB and superficial loss calculations.
 
+It also contains helper scripts for converting third-party CSV exports into the internal transactions format and POSTing them to `/api/import-transactions`:
+
+- **import_koinly.mjs** — Transforms a Koinly-style report. Run with `node examples/import_koinly.mjs <input.csv> [serverUrl]` (defaults to `http://localhost:3030`).
+
 ## Development
 
 - Source code is in the `src/` directory.
