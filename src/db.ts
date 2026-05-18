@@ -1,12 +1,18 @@
 import { Database } from 'sqlite3';
 import { mkdir, unlink } from 'fs';
 import { dirname } from 'path';
-import { AssetType, Asset, Price, Transaction, Wallet, InsertionType } from './types';
+import { AssetType, Asset, Price, Transaction, TransactionType, Wallet, InsertionType } from './types';
 
 //=======================
 // Database Init
 //=======================
 let db: Database | undefined;
+
+// SQL fragment lists used in CHECK constraints to keep them in sync with the
+// TypeScript enums. Quoting is done with literal single quotes inside the
+// template (SQLite's preferred string literal syntax).
+const ASSET_TYPE_CHECK_VALUES = Object.values(AssetType).map(v => `'${v}'`).join(', ');
+const TRANSACTION_TYPE_CHECK_VALUES = Object.values(TransactionType).map(v => `'${v}'`).join(', ');
 
 export async function initDb(path: string): Promise<Database> {
   return new Promise<Database>((resolve, reject) => {
@@ -26,8 +32,8 @@ export async function initDb(path: string): Promise<Database> {
           CREATE TABLE IF NOT EXISTS assets (
             symbol TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            asset_type TEXT NOT NULL,
-            launch_date INTEGER NOT NULL,
+            asset_type TEXT NOT NULL CHECK (asset_type IN (${ASSET_TYPE_CHECK_VALUES})),
+            launch_date INTEGER,
             logo_url TEXT
           );
           CREATE TABLE IF NOT EXISTS prices (
@@ -37,16 +43,15 @@ export async function initDb(path: string): Promise<Database> {
             fiat_symbol TEXT NOT NULL,
             FOREIGN KEY(asset_symbol) REFERENCES assets(symbol) ON DELETE CASCADE,
             FOREIGN KEY(fiat_symbol) REFERENCES assets(symbol) ON DELETE CASCADE,
-            PRIMARY KEY (unix_timestamp, asset_symbol, fiat_symbol)
+            PRIMARY KEY (asset_symbol, fiat_symbol, unix_timestamp)
           );
           CREATE TABLE IF NOT EXISTS wallets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
+            name TEXT PRIMARY KEY
           );
           CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             unix_timestamp INTEGER NOT NULL,
-            type TEXT NOT NULL,
+            type TEXT NOT NULL CHECK (type IN (${TRANSACTION_TYPE_CHECK_VALUES})),
             send_asset_symbol TEXT,
             send_asset_quantity REAL,
             receive_asset_symbol TEXT,
@@ -55,14 +60,20 @@ export async function initDb(path: string): Promise<Database> {
             fee_asset_quantity REAL,
             is_income BOOLEAN,
             notes TEXT,
-            from_wallet_id INTEGER,
-            to_wallet_id INTEGER,
+            from_wallet_name TEXT,
+            to_wallet_name TEXT,
             FOREIGN KEY(send_asset_symbol) REFERENCES assets(symbol),
             FOREIGN KEY(receive_asset_symbol) REFERENCES assets(symbol),
             FOREIGN KEY(fee_asset_symbol) REFERENCES assets(symbol),
-            FOREIGN KEY(from_wallet_id) REFERENCES wallets(id) ON DELETE SET NULL,
-            FOREIGN KEY(to_wallet_id) REFERENCES wallets(id) ON DELETE SET NULL
+            FOREIGN KEY(from_wallet_name) REFERENCES wallets(name) ON DELETE SET NULL ON UPDATE CASCADE,
+            FOREIGN KEY(to_wallet_name) REFERENCES wallets(name) ON DELETE SET NULL ON UPDATE CASCADE
           );
+          CREATE INDEX IF NOT EXISTS idx_transactions_unix_timestamp
+            ON transactions (unix_timestamp);
+          CREATE INDEX IF NOT EXISTS idx_transactions_send_asset_ts
+            ON transactions (send_asset_symbol, unix_timestamp);
+          CREATE INDEX IF NOT EXISTS idx_transactions_receive_asset_ts
+            ON transactions (receive_asset_symbol, unix_timestamp);
         `,
         (err) => {
           if (err) return reject(err);
@@ -113,7 +124,7 @@ export async function addAsset({name, symbol, asset_type, logo_url, launch_date}
       }
       db.all(
         'INSERT INTO assets (symbol, name, asset_type, launch_date, logo_url) VALUES (?, ?, ?, ?, ?) RETURNING *',
-        [symbol, name, asset_type, launch_date, logo_url ?? null],
+        [symbol, name, asset_type, launch_date ?? null, logo_url ?? null],
         (err, rows) => {
           if (err) return reject(err);
           if (!rows.length) return;
@@ -131,7 +142,7 @@ export async function addAssets(assets: Asset[]): Promise<Asset[]> {
     if (!assets.length) return reject(new Error('No assets to add'));
 
     const placeholders = assets.map(() => '(?, ?, ?, ?, ?)').join(', ');
-    const values = assets.flatMap(a => [a.symbol, a.name, a.asset_type, a.launch_date, a.logo_url ?? null]);
+    const values = assets.flatMap(a => [a.symbol, a.name, a.asset_type, a.launch_date ?? null, a.logo_url ?? null]);
     const sql = `INSERT INTO assets (symbol, name, asset_type, launch_date, logo_url) VALUES ${placeholders} RETURNING *`;
 
     db.all(sql, values, (err, rows) => {
@@ -198,7 +209,7 @@ export async function getAssets(filters?: {
 }
 
 // Update
-export async function updateAsset(symbol: string, name: string, asset_type: AssetType, launch_date: number, logo_url: string): Promise<Asset[]> {
+export async function updateAsset(symbol: string, name: string, asset_type: AssetType, launch_date: number | null, logo_url: string): Promise<Asset[]> {
     return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
@@ -281,7 +292,7 @@ export async function addPrices(prices: Price[], insertionType: InsertionType = 
     ]);
     let sql = `INSERT INTO prices (unix_timestamp, price, asset_symbol, fiat_symbol) VALUES ${placeholders} `;
     if (insertionType === InsertionType.UPSERT) {
-      sql += `ON CONFLICT(unix_timestamp, asset_symbol, fiat_symbol) DO UPDATE SET price = excluded.price `;
+      sql += `ON CONFLICT(asset_symbol, fiat_symbol, unix_timestamp) DO UPDATE SET price = excluded.price `;
     }
     sql += 'RETURNING *';
 
@@ -423,8 +434,8 @@ export async function addTransaction(
     fee_asset_quantity,
     is_income,
     notes,
-    from_wallet_id,
-    to_wallet_id
+    from_wallet_name,
+    to_wallet_name
   }: Omit<Transaction, 'id'>
 ): Promise<Transaction[]> {
   return new Promise<any[]>((resolve, reject) => {
@@ -435,14 +446,14 @@ export async function addTransaction(
           unix_timestamp, type, send_asset_symbol, send_asset_quantity,
           receive_asset_symbol, receive_asset_quantity,
           fee_asset_symbol, fee_asset_quantity,
-          is_income, notes, from_wallet_id, to_wallet_id
+          is_income, notes, from_wallet_name, to_wallet_name
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
       `,
       [
         unix_timestamp, type, send_asset_symbol, send_asset_quantity,
         receive_asset_symbol, receive_asset_quantity,
         fee_asset_symbol, fee_asset_quantity,
-        is_income, notes, from_wallet_id, to_wallet_id
+        is_income, notes, from_wallet_name, to_wallet_name
       ],
       (err, rows) => {
         if (err) return reject(err);
@@ -460,8 +471,8 @@ export async function addTransaction(
           fee_asset_quantity: ${(rows[0] as any).fee_asset_quantity}, 
           is_income: ${(rows[0] as any).is_income}, 
           notes: ${(rows[0] as any).notes},
-          from_wallet_id: ${(rows[0] as any).from_wallet_id},
-          to_wallet_id: ${(rows[0] as any).to_wallet_id}`
+          from_wallet_name: ${(rows[0] as any).from_wallet_name},
+          to_wallet_name: ${(rows[0] as any).to_wallet_name}`
         );
         resolve(rows);
       }
@@ -476,7 +487,7 @@ export async function getTransactions(filters?: {
   type?: string;
   date_from?: number;
   date_to?: number;
-  wallet_id?: number;
+  wallet_name?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ items: Transaction[], total: number }> {
@@ -491,7 +502,7 @@ export async function getTransactions(filters?: {
         t.receive_asset_symbol, t.receive_asset_quantity,
         t.fee_asset_symbol, t.fee_asset_quantity,
         t.is_income, t.notes,
-        t.from_wallet_id, t.to_wallet_id,
+        t.from_wallet_name, t.to_wallet_name,
         COUNT(*) OVER() AS total
       FROM transactions t
       LEFT JOIN assets sa ON t.send_asset_symbol = sa.symbol
@@ -522,9 +533,9 @@ export async function getTransactions(filters?: {
         sql += ' AND t.unix_timestamp <= ?';
         params.push(filters.date_to);
       }
-      if (filters.wallet_id) {
-        sql += ' AND (t.from_wallet_id = ? OR t.to_wallet_id = ?)';
-        params.push(filters.wallet_id, filters.wallet_id);
+      if (filters.wallet_name) {
+        sql += ' AND (t.from_wallet_name = ? OR t.to_wallet_name = ?)';
+        params.push(filters.wallet_name, filters.wallet_name);
       }
     }
     sql += ' ORDER BY t.unix_timestamp ASC';
@@ -600,40 +611,41 @@ export async function deleteTransaction(id: number): Promise<Transaction[]> {
 //=======================
 // Wallets
 //=======================
-// Create
-export async function addWallet({ name }: Omit<Wallet, 'id'>): Promise<Wallet[]> {
+// Create. Idempotent: re-adding an existing wallet is a no-op (returns the row).
+export async function addWallet({ name }: Wallet): Promise<Wallet[]> {
   return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
-      'INSERT INTO wallets (name) VALUES (?) RETURNING *',
+      'INSERT INTO wallets (name) VALUES (?) ON CONFLICT(name) DO NOTHING RETURNING *',
       [name],
       (err, rows) => {
         if (err) return reject(err);
-        if (!rows.length) return reject(new Error('Failed to insert wallet'));
-        console.log(`Inserted wallet: ${(rows[0] as any).name} (ID: ${(rows[0] as any).id})`);
-        resolve(rows);
+        if (rows.length) {
+          console.log(`Inserted wallet: ${(rows[0] as any).name}`);
+          return resolve(rows);
+        }
+        // Already existed; fetch and return the existing row so callers don't
+        // have to special-case the "no-op upsert" case.
+        db!.all('SELECT * FROM wallets WHERE name = ?', [name], (err, existing) => {
+          if (err) return reject(err);
+          if (!existing.length) return reject(new Error(`Failed to insert or find wallet: ${name}`));
+          resolve(existing);
+        });
       }
     );
   });
 }
 
 // Retrieve
-export async function getWallets(filters?: { ids?: number[]; names?: string[] }): Promise<{ items: Wallet[]; total: number }> {
+export async function getWallets(filters?: { names?: string[] }): Promise<{ items: Wallet[]; total: number }> {
   return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     let sql = 'SELECT *, COUNT(*) OVER() AS total_count FROM wallets WHERE 1=1';
     const params: any[] = [];
-    if (filters) {
-      if (filters.ids?.length) {
-        const placeholders = filters.ids.map(() => '?').join(',');
-        sql += ` AND id IN (${placeholders})`;
-        params.push(...filters.ids);
-      }
-      if (filters.names?.length) {
-        const placeholders = filters.names.map(() => '?').join(',');
-        sql += ` AND name IN (${placeholders})`;
-        params.push(...filters.names);
-      }
+    if (filters?.names?.length) {
+      const placeholders = filters.names.map(() => '?').join(',');
+      sql += ` AND name IN (${placeholders})`;
+      params.push(...filters.names);
     }
     sql += ' ORDER BY name ASC';
     db.all(sql, params, (err, rows: any[]) => {
@@ -645,17 +657,18 @@ export async function getWallets(filters?: { ids?: number[]; names?: string[] })
   });
 }
 
-// Update
-export async function updateWallet(id: number, name: string): Promise<Wallet[]> {
+// Update (rename). The FK in transactions has ON UPDATE CASCADE, so renaming a
+// wallet automatically rewrites every transaction that references it.
+export async function updateWallet(name: string, newName: string): Promise<Wallet[]> {
   return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
-      'UPDATE wallets SET name = ? WHERE id = ? RETURNING *',
-      [name, id],
+      'UPDATE wallets SET name = ? WHERE name = ? RETURNING *',
+      [newName, name],
       (err, rows) => {
         if (err) return reject(err);
         if (!rows.length) return reject(new Error('Failed to update wallet'));
-        console.log(`Updated wallet: ${(rows[0] as any).name} (ID: ${(rows[0] as any).id})`);
+        console.log(`Updated wallet: ${name} -> ${(rows[0] as any).name}`);
         resolve(rows);
       }
     );
@@ -663,15 +676,15 @@ export async function updateWallet(id: number, name: string): Promise<Wallet[]> 
 }
 
 // Delete
-export async function deleteWallet(id: number): Promise<Wallet[]> {
+export async function deleteWallet(name: string): Promise<Wallet[]> {
   return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     // Associated transaction wallet references are nulled automatically via
     // ON DELETE SET NULL.
-    db.all('DELETE FROM wallets WHERE id = ? RETURNING *', [id], (err, rows) => {
+    db.all('DELETE FROM wallets WHERE name = ? RETURNING *', [name], (err, rows) => {
       if (err) return reject(err);
       if (!rows.length) return reject(new Error('Failed to delete wallet'));
-      console.log(`Deleted wallet with id: ${id}`);
+      console.log(`Deleted wallet: ${name}`);
       resolve(rows);
     });
   });

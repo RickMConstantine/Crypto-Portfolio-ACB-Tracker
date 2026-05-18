@@ -26,7 +26,7 @@ const TRANSACTIONS_ROW: Transaction = {
 };
 const ADD_TRANSACTION_MOCK = jest.fn().mockResolvedValue([TRANSACTIONS_ROW]);
 const GET_TRANSACTIONS_MOCK = jest.fn().mockResolvedValue({ items: [TRANSACTIONS_ROW], total: 1 });
-const WALLETS_ROW: Wallet = { id: 1, name: 'Ledger Nano' };
+const WALLETS_ROW: Wallet = { name: 'Ledger Nano' };
 const WALLETS_ROW_MOCK = jest.fn().mockResolvedValue([WALLETS_ROW]);
 const GET_WALLETS_MOCK = jest.fn().mockResolvedValue({ items: [WALLETS_ROW], total: 1 });
 
@@ -160,7 +160,6 @@ describe('Express API endpoints (mocked db)', () => {
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(1);
     expect(res.body.items.some((b: Wallet) =>
-      b.id === WALLETS_ROW.id &&
       b.name === WALLETS_ROW.name
     )).toBeTruthy();
   });
@@ -169,7 +168,6 @@ describe('Express API endpoints (mocked db)', () => {
     const res = await request(app).post('/api/wallet').send({ name: 'Ledger Nano' });
     expect(res.status).toBe(200);
     expect(res.body.some((b: Wallet) =>
-      b.id === WALLETS_ROW.id &&
       b.name === WALLETS_ROW.name
     )).toBeTruthy();
   });
@@ -180,42 +178,37 @@ describe('Express API endpoints (mocked db)', () => {
     expect(res.body.error).toBeDefined();
   });
 
-  it('PUT /api/wallet/:id', async () => {
-    const res = await request(app).put('/api/wallet/1').send({ name: 'Updated Wallet' });
+  it('PUT /api/wallet/:name', async () => {
+    const res = await request(app).put('/api/wallet/Ledger%20Nano').send({ name: 'Updated Wallet' });
     expect(res.status).toBe(200);
     expect(res.body.some((b: Wallet) =>
-      b.id === WALLETS_ROW.id &&
       b.name === WALLETS_ROW.name
     )).toBeTruthy();
   });
 
-  it('PUT /api/wallet/:id returns 400 without name', async () => {
-    const res = await request(app).put('/api/wallet/1').send({});
+  it('PUT /api/wallet/:name returns 400 without name', async () => {
+    const res = await request(app).put('/api/wallet/Ledger%20Nano').send({});
     expect(res.status).toBe(400);
     expect(res.body.error).toBeDefined();
   });
 
-  it('DELETE /api/wallet/:id', async () => {
-    const res = await request(app).delete('/api/wallet/1');
+  it('DELETE /api/wallet/:name', async () => {
+    const res = await request(app).delete('/api/wallet/Ledger%20Nano');
     expect(res.status).toBe(200);
     expect(res.body.some((b: Wallet) =>
-      b.id === WALLETS_ROW.id &&
       b.name === WALLETS_ROW.name
     )).toBeTruthy();
   });
 
   it('POST /api/transaction with TRANSFER type and wallet IDs', async () => {
-    // getWallets mock returns [{ id: 1, ... }]; need a second wallet id for to_wallet.
-    // The server validates wallet IDs via getWallets({ ids: [...] }); our mock always
-    // returns WALLETS_ROW (id: 1) so we validate that id 1 is allowed as from_wallet
-    // but use id 1 for both will fail the "must be different" check.
-    // Instead, cover the happy path with a single wallet: SEND (disposition) allowing only from_wallet.
+    // getWallets mock returns [{ name: 'Ledger Nano', ... }]; cover the happy path with
+    // a single wallet by using SEND (disposition) which only needs from_wallet.
     const sendTx = {
       unix_timestamp: new Date('2024-06-02').getTime(),
       type: TransactionType.SEND,
       send_asset_symbol: 'ETH',
       send_asset_quantity: 1,
-      from_wallet_id: 1
+      from_wallet_name: 'Ledger Nano'
     };
     const res = await request(app).post('/api/transaction').send(sendTx);
     expect(res.status).toBe(200);
@@ -227,8 +220,8 @@ describe('Express API endpoints (mocked db)', () => {
       type: TransactionType.TRANSFER,
       send_asset_symbol: 'ETH',
       send_asset_quantity: 1,
-      from_wallet_id: 1,
-      to_wallet_id: 2
+      from_wallet_name: 'Wallet A',
+      to_wallet_name: 'Wallet B'
     };
     const res = await request(app).post('/api/transaction').send(transferTx);
     expect(res.status).toBe(400);
@@ -243,8 +236,8 @@ describe('Express API endpoints (mocked db)', () => {
       send_asset_quantity: 1,
       receive_asset_symbol: 'BTC',
       receive_asset_quantity: 1,
-      from_wallet_id: 1,
-      to_wallet_id: 2
+      from_wallet_name: 'Wallet A',
+      to_wallet_name: 'Wallet B'
     };
     const res = await request(app).post('/api/transaction').send(transferTx);
     expect(res.status).toBe(400);
@@ -259,14 +252,14 @@ describe('Express API endpoints (mocked db)', () => {
       send_asset_quantity: 1,
       receive_asset_symbol: 'ETH',
       receive_asset_quantity: 1,
-      from_wallet_id: 1
+      from_wallet_name: 'Wallet A'
     };
     const res = await request(app).post('/api/transaction').send(transferTx);
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Transfer requires both/i);
   });
 
-  it('POST /api/transaction with BUY rejects from_wallet_id', async () => {
+  it('POST /api/transaction with BUY rejects from_wallet_name', async () => {
     const buyTx = {
       unix_timestamp: new Date('2024-06-02').getTime(),
       type: TransactionType.BUY,
@@ -274,14 +267,14 @@ describe('Express API endpoints (mocked db)', () => {
       send_asset_quantity: 1,
       receive_asset_symbol: 'ETH',
       receive_asset_quantity: 2,
-      from_wallet_id: 1
+      from_wallet_name: 'Wallet A'
     };
     const res = await request(app).post('/api/transaction').send(buyTx);
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/From Wallet is not allowed/i);
   });
 
-  it('POST /api/transaction with SELL rejects to_wallet_id', async () => {
+  it('POST /api/transaction with SELL rejects to_wallet_name', async () => {
     const sellTx = {
       unix_timestamp: new Date('2024-06-02').getTime(),
       type: TransactionType.SELL,
@@ -289,16 +282,14 @@ describe('Express API endpoints (mocked db)', () => {
       send_asset_quantity: 1,
       receive_asset_symbol: 'ETH',
       receive_asset_quantity: 2,
-      to_wallet_id: 1
+      to_wallet_name: 'Wallet A'
     };
     const res = await request(app).post('/api/transaction').send(sellTx);
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/To Wallet is not allowed/i);
   });
 
-  it('GET /api/wallet/:id/balances calculates balances from transactions', async () => {
-    // The mock returns TRANSACTIONS_ROW which has no wallet associations, so balances
-    // will be empty. To test with wallet data, override getTransactions for this test.
+  it('GET /api/wallet/:name/balances calculates balances from transactions', async () => {
     const mockTxWithWallets: Transaction = {
       id: 2,
       unix_timestamp: new Date('2024-06-01').getTime(),
@@ -307,18 +298,20 @@ describe('Express API endpoints (mocked db)', () => {
       send_asset_quantity: 1,
       fee_asset_symbol: 'ETH',
       fee_asset_quantity: 0.01,
-      from_wallet_id: 1
+      from_wallet_name: 'Ledger Nano'
     };
     const { getTransactions } = require('../src/db');
     (getTransactions as jest.Mock).mockResolvedValueOnce({ items: [mockTxWithWallets], total: 1 });
-    const res = await request(app).get('/api/wallet/1/balances');
+    const res = await request(app).get('/api/wallet/Ledger%20Nano/balances');
     expect(res.status).toBe(200);
     expect(res.body.some((b: any) => b.symbol === 'ETH' && b.balance === -1.01)).toBeTruthy();
   });
 
-  it('GET /api/wallet/:id/balances returns 400 for invalid ID', async () => {
-    const res = await request(app).get('/api/wallet/0/balances');
-    expect(res.status).toBe(400);
+  it('GET /api/wallet/:name/balances returns 404 when name is empty', async () => {
+    // An empty :name doesn't match the route (Express returns 404). Validate
+    // we don't accidentally match a wildcard route.
+    const res = await request(app).get('/api/wallet//balances');
+    expect(res.status).toBe(404);
   });
 
   it('DELETE /api/transactions/bulk deletes multiple transactions', async () => {

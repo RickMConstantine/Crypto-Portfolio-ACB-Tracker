@@ -43,7 +43,7 @@ import Decimal from 'decimal.js';
 // Server Config
 // ==============
 const app = express();
-const PORT = 3000;
+const PORT = 3030;
 const DB_PATH = `${__dirname}/db/app_db.sqlite`;
 
 // Serve static files from 'static'
@@ -427,24 +427,24 @@ app.post('/api/transaction', async (req, res) => {
   res.json(await addTransaction(req.body));
 });
 
-app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '2mb' }), async (req, res) => {
+app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '10mb' }), async (req, res) => {
   try {
     const csv = req.body;
     if (!csv) return res.status(400).json({ error: 'No CSV data received' });
     const parsed = Papa.parse(csv, { skipEmptyLines: true, header: true });
     if (parsed.errors.length) return res.status(400).json({ error: parsed.errors[0].message });
-    const transactions: any[] = parsed.data;
-    // Map and insert transactions
-    let inserted = 0;
-    for (let i = 0; i < transactions.length; i++) {
-      const row = transactions[i];
+
+    const emptyToUndef = (v?: string) => (v?.trim() === '' ? undefined : v);
+    const rows: any[] = parsed.data;
+    const walletNames = new Set<string>();
+    const assetSymbols = new Set<string>();
+    const transactions = rows.map(row => {
       let unix_timestamp = row.unix_timestamp || row.date || row.timestamp;
       if (unix_timestamp && isNaN(Number(unix_timestamp))) {
         unix_timestamp = Date.parse(unix_timestamp);
       } else {
         unix_timestamp = Number(unix_timestamp);
       }
-      const emptyToUndef = (v?: string) => (v?.trim() === '' ? undefined : v);
       const tx = {
         unix_timestamp,
         type: TransactionType[row.type?.toUpperCase() as keyof typeof TransactionType],
@@ -456,26 +456,40 @@ app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '2m
         fee_asset_quantity: row.fee_asset_quantity ? Number(row.fee_asset_quantity) : undefined,
         is_income: row.is_income === true || row.is_income === 'true' || row.is_income === 1 || row.is_income === '1',
         notes: emptyToUndef(row.notes),
-        from_wallet_id: row.from_wallet_id ? Number(row.from_wallet_id) : undefined,
-        to_wallet_id: row.to_wallet_id ? Number(row.to_wallet_id) : undefined
+        from_wallet_name: emptyToUndef(row.from_wallet_name),
+        to_wallet_name: emptyToUndef(row.to_wallet_name)
       };
-      try { 
+      if (tx.from_wallet_name) walletNames.add(tx.from_wallet_name);
+      if (tx.to_wallet_name) walletNames.add(tx.to_wallet_name);
+      if (tx.send_asset_symbol) assetSymbols.add(tx.send_asset_symbol);
+      if (tx.receive_asset_symbol) assetSymbols.add(tx.receive_asset_symbol);
+      if (tx.fee_asset_symbol) assetSymbols.add(tx.fee_asset_symbol);
+      return tx;
+    });
+
+    await ensureWalletsExist(Array.from(walletNames));
+    await ensureAssetsExist(Array.from(assetSymbols));
+
+    let inserted = 0;
+    const skipped: Array<{ row: number; reason: string }> = [];
+    for (let i = 0; i < transactions.length; i++) {
+      const tx = transactions[i];
+      try {
         await validateTransaction(tx);
-      } catch (error: any) {
-        // skip invalid rows
-        console.log(`Skipping invalid transaction row #${i}: ${JSON.stringify(row)} - ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } catch (err: any) {
+        console.log(`Skipping invalid transaction row #${i}: ${JSON.stringify(tx)}`);
+        skipped.push({ row: i, reason: err?.message || 'validation failed' });
         continue;
       }
       try {
         await addTransaction(tx);
         inserted++;
-      } catch (e) {
-        // skip invalid rows
-        console.log(`Skipping invalid transaction row #${i}: ${JSON.stringify(row)}`);
-        continue;
+      } catch (err: any) {
+        console.log(`Skipping invalid transaction row #${i}: ${JSON.stringify(tx)}`);
+        skipped.push({ row: i, reason: err?.message || 'insert failed' });
       }
     }
-    res.json({ success: true, inserted });
+    res.json({ success: true, inserted, skipped });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
   }
@@ -483,13 +497,13 @@ app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '2m
 
 // Retrieve
 app.get('/api/transactions', async (req, res) => {
-  const { asset, type, date_from, date_to, wallet_id, limit, offset } = req.query;
+  const { asset, type, date_from, date_to, wallet_name, limit, offset } = req.query;
   res.json(await getTransactions({
     asset: asset as string | undefined,
     type: type as string | undefined,
     date_from: date_from ? Number(date_from) : undefined,
     date_to: date_to ? Number(date_to) : undefined,
-    wallet_id: wallet_id ? Number(wallet_id) : undefined,
+    wallet_name: wallet_name as string | undefined,
     limit: limit !== undefined ? Number(limit) : undefined,
     offset: offset !== undefined ? Number(offset) : undefined
   }));
@@ -584,6 +598,34 @@ app.patch('/api/transactions/bulk', async (req, res) => {
 
 // Transaction Helper Functions
 
+async function ensureWalletsExist(names: string[]): Promise<void> {
+  if (!names.length) return;
+  const { items: existing } = await getWallets({ names });
+  const existingSet = new Set(existing.map(w => w.name));
+  for (const name of names) {
+    if (existingSet.has(name)) continue;
+    try {
+      await addWallet({ name });
+    } catch (err: any) {
+      console.log(`Could not create wallet "${name}": ${err?.message || err}`);
+    }
+  }
+}
+
+async function ensureAssetsExist(symbols: string[]): Promise<void> {
+  if (!symbols.length) return;
+  const { items: existing } = await getAssets({ symbols });
+  const existingSet = new Set(existing.map(a => a.symbol));
+  for (const symbol of symbols) {
+    if (existingSet.has(symbol)) continue;
+    try {
+      await addAssetBySymbolAndType(symbol, AssetType.BLOCKCHAIN);
+    } catch (err: any) {
+      console.log(`Could not create asset "${symbol}": ${err?.message || err}`);
+    }
+  }
+}
+
 async function validateTransaction(transaction: Transaction | Omit<Transaction, 'id'>) {
   if (!Object.values(TransactionType).includes(transaction.type)) {
     throw new Error(`Invalid transaction type. Allowed: ${Object.values(TransactionType).join(', ')}`);
@@ -620,18 +662,18 @@ async function validateTransaction(transaction: Transaction | Omit<Transaction, 
   const dispositionTypes = [TransactionType.SELL, TransactionType.SEND, TransactionType.TRADE];
   const acquisitionTypes = [TransactionType.BUY, TransactionType.RECEIVE];
   if (transaction.type === TransactionType.TRANSFER) {
-    if (!transaction.from_wallet_id || !transaction.to_wallet_id) {
+    if (!transaction.from_wallet_name || !transaction.to_wallet_name) {
       throw new Error('Transfer requires both a From Wallet and a To Wallet.');
     }
-    if (transaction.from_wallet_id === transaction.to_wallet_id) {
+    if (transaction.from_wallet_name === transaction.to_wallet_name) {
       throw new Error('Transfer From Wallet and To Wallet must be different.');
     }
   } else if (dispositionTypes.includes(transaction.type)) {
-    if (transaction.to_wallet_id) {
+    if (transaction.to_wallet_name) {
       throw new Error(`To Wallet is not allowed for ${transaction.type}.`);
     }
   } else if (acquisitionTypes.includes(transaction.type)) {
-    if (transaction.from_wallet_id) {
+    if (transaction.from_wallet_name) {
       throw new Error(`From Wallet is not allowed for ${transaction.type}.`);
     }
   }
@@ -987,29 +1029,28 @@ app.post('/api/wallet', async (req, res) => {
 
 // Retrieve
 app.get('/api/wallets', async (req, res) => {
-  const { ids, names } = req.query;
+  const { names } = req.query;
   res.json(await getWallets({
-    ids: ids?.length ? (ids as string).split(',').map(Number) : [],
     names: names?.length ? (names as string).split(',') : []
   }));
 });
 
-// Update
-app.put('/api/wallet/:id', async (req, res) => {
-  const { id } = req.params;
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ error: 'Wallet name is required' });
+// Update (rename)
+app.put('/api/wallet/:name', async (req, res) => {
+  const { name } = req.params;
+  const { name: newName } = req.body;
+  if (!newName) return res.status(400).json({ error: 'Wallet name is required' });
   try {
-    res.json(await updateWallet(Number(id), name));
+    res.json(await updateWallet(name, newName));
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to update wallet' });
   }
 });
 
 // Delete
-app.delete('/api/wallet/:id', async (req, res) => {
+app.delete('/api/wallet/:name', async (req, res) => {
   try {
-    res.json(await deleteWallet(Number(req.params.id)));
+    res.json(await deleteWallet(req.params.name));
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to delete wallet' });
   }
@@ -1022,12 +1063,12 @@ app.delete('/api/wallet/:id', async (req, res) => {
 // - receive_asset is credited to to_wallet
 // - fee_asset is debited from from_wallet
 // - Fiat assets are not tracked per wallet and are filtered out of the result.
-app.get('/api/wallet/:id/balances', async (req, res) => {
+app.get('/api/wallet/:name/balances', async (req, res) => {
   try {
-    const walletId = Number(req.params.id);
-    if (!walletId) return res.status(400).json({ error: 'Invalid wallet ID' });
+    const walletName = req.params.name;
+    if (!walletName) return res.status(400).json({ error: 'Invalid wallet name' });
 
-    const { items: txs } = await getTransactions({ wallet_id: walletId });
+    const { items: txs } = await getTransactions({ wallet_name: walletName });
 
     const { items: fiatAssets } = await getAssets({ asset_types: [AssetType.FIAT] });
     const fiatSymbols = new Set(fiatAssets.map((a: any) => a.symbol));
@@ -1038,7 +1079,7 @@ app.get('/api/wallet/:id/balances', async (req, res) => {
     };
 
     for (const tx of txs) {
-      if (tx.from_wallet_id === walletId) {
+      if (tx.from_wallet_name === walletName) {
         if (tx.send_asset_symbol && tx.send_asset_quantity) {
           add(tx.send_asset_symbol, -tx.send_asset_quantity);
         }
@@ -1047,11 +1088,11 @@ app.get('/api/wallet/:id/balances', async (req, res) => {
         }
       }
 
-      // When from_wallet_id is set and to_wallet_id is null, treat them as the same wallet
+      // When from_wallet_name is set and to_wallet_name is null, treat them as the same wallet
       // (covers a Trade that debits and credits the same wallet). Safe in all cases because
       // transactions without a receive asset won't credit anything.
-      const effectiveToWalletId = tx.to_wallet_id ?? tx.from_wallet_id;
-      if (effectiveToWalletId === walletId && tx.receive_asset_symbol && tx.receive_asset_quantity) {
+      const effectiveToWalletName = tx.to_wallet_name ?? tx.from_wallet_name;
+      if (effectiveToWalletName === walletName && tx.receive_asset_symbol && tx.receive_asset_quantity) {
         add(tx.receive_asset_symbol, tx.receive_asset_quantity);
       }
     }

@@ -435,7 +435,6 @@
     <table id="wallets-table" border="1">
       <thead>
         <tr>
-          <th>ID</th>
           <th>Name</th>
           <th>Balances</th>
         </tr>
@@ -537,12 +536,12 @@
           <input type="number" step="any" name="fee_asset_quantity" id="edit-fee-asset-quantity">
         </label>
         <label>From Wallet:
-          <select name="from_wallet_id" id="edit-from-wallet-select">
+          <select name="from_wallet_name" id="edit-from-wallet-select">
             <option value="">None</option>
           </select>
         </label>
         <label>To Wallet:
-          <select name="to_wallet_id" id="edit-to-wallet-select">
+          <select name="to_wallet_name" id="edit-to-wallet-select">
             <option value="">None</option>
           </select>
         </label>
@@ -592,13 +591,13 @@
         <label><input type="checkbox" name="apply_fee_asset_quantity" class="bulk-apply"> Fee Qty:
           <input type="number" step="any" name="fee_asset_quantity" id="bulk-edit-fee-asset-quantity" disabled>
         </label>
-        <label><input type="checkbox" name="apply_from_wallet_id" class="bulk-apply"> From Wallet:
-          <select name="from_wallet_id" id="bulk-edit-from-wallet-select" disabled>
+        <label><input type="checkbox" name="apply_from_wallet_name" class="bulk-apply"> From Wallet:
+          <select name="from_wallet_name" id="bulk-edit-from-wallet-select" disabled>
             <option value="">None</option>
           </select>
         </label>
-        <label><input type="checkbox" name="apply_to_wallet_id" class="bulk-apply"> To Wallet:
-          <select name="to_wallet_id" id="bulk-edit-to-wallet-select" disabled>
+        <label><input type="checkbox" name="apply_to_wallet_name" class="bulk-apply"> To Wallet:
+          <select name="to_wallet_name" id="bulk-edit-to-wallet-select" disabled>
             <option value="">None</option>
           </select>
         </label>
