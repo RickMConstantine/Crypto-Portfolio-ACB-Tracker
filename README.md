@@ -34,7 +34,7 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or newer recommended)
+- [Node.js](https://nodejs.org/) (v20 or newer recommended; `npm start` uses `--env-file-if-exists` which requires Node 20+)
 - [npm](https://www.npmjs.com/) (comes with Node.js)
 - [Git](https://git-scm.com/) (optional, for cloning)
 
@@ -119,11 +119,11 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 - `GET /api/transaction-types` — List all transaction types
 
 ### Wallets
-- `GET /api/wallets` — List all wallets (supports filtering by `ids`, `names` as query params)
+- `GET /api/wallets` — List all wallets (supports filtering by `names` as a query param)
 - `POST /api/wallet` — Add wallet (requires `name`)
-- `PUT /api/wallet/:id` — Update wallet
-- `DELETE /api/wallet/:id` — Delete wallet (clears wallet references from transactions)
-- `GET /api/wallet/:id/balances` — Get per-asset balances for a wallet (calculated from transactions)
+- `PUT /api/wallet/:name` — Rename wallet (cascades the new name to referencing transactions)
+- `DELETE /api/wallet/:name` — Delete wallet (clears wallet references from transactions)
+- `GET /api/wallet/:name/balances` — Get per-asset balances for a wallet (calculated from transactions)
 
 ### Tax + ACB
 - `GET /api/acb` — Get proceeds, costs, outlays, ACB, and superficial loss for all assets (yearly and total breakdown)
