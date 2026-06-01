@@ -143,7 +143,7 @@ You can use these files to experiment with the app and verify ACB and superficia
 
 It also contains helper scripts for converting third-party CSV exports into the internal transactions format and POSTing them to `/api/import-transactions`:
 
-- **import_koinly.mjs** — Transforms a Koinly-style report. Run with `node examples/import_koinly.mjs <input.csv> [serverUrl]` (defaults to `http://localhost:3030`).
+- **import_adapters.mjs** — Multi-format CSV import adapter. Run from the repo root with `node examples/import_adapters.mjs --adapter <name> --input <file> [options]`. Supported adapters cover Koinly, Coinbase, Crypto.com, Shakepay, Uphold, MetaMask BSC (Etherscan-style), Trust BCH, Etherscan token transfers, and pre-formatted internal CSVs from Yield.app. Pass `--help` for the full option list.
 
 ## Development
 
