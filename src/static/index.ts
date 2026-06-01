@@ -622,6 +622,27 @@ function showAddEditPriceModal(price?: Price) {
   showAddEditPriceModal();
 };
 
+// Build the URLSearchParams that mirror the current Transactions tab filter
+// controls. Used by both the table fetch and the CSV export so both stay in
+// lockstep without funneling state through a shared variable.
+function readTransactionFilterParams(): URLSearchParams {
+  const assetSelect = document.getElementById('transactions-filter-asset') as HTMLSelectElement;
+  const typeSelect = document.getElementById('transactions-filter-type') as HTMLSelectElement;
+  const walletSelect = document.getElementById('transactions-filter-wallet') as HTMLSelectElement;
+  const dateFromInput = document.getElementById('transactions-filter-date-from') as HTMLInputElement;
+  const dateToInput = document.getElementById('transactions-filter-date-to') as HTMLInputElement;
+  const params = new URLSearchParams();
+  if (assetSelect?.value) params.append('asset', assetSelect.value);
+  if (typeSelect?.value) params.append('type', typeSelect.value);
+  if (walletSelect?.value) params.append('wallet_name', walletSelect.value);
+  if (dateFromInput?.value) params.append('date_from', String(Date.parse(dateFromInput.value)));
+  if (dateToInput?.value) {
+    // End-of-day inclusive, matching the table filter behavior.
+    params.append('date_to', String(Date.parse(dateToInput.value) + 24 * 60 * 60 * 1000 - 1));
+  }
+  return params;
+}
+
 //=======================
 // Transactions Page
 //=======================
@@ -637,13 +658,6 @@ async function renderTransactions(): Promise<void> {
   const prevBtn = document.getElementById('transactions-table-prev-page') as HTMLButtonElement;
   const nextBtn = document.getElementById('transactions-table-next-page') as HTMLButtonElement;
   const pageSizeSelect = document.getElementById('transactions-table-page-size') as HTMLSelectElement;
-  const filters = {
-    asset: assetSelect.value,
-    type: typeSelect.value,
-    wallet_name: walletSelect.value || undefined,
-    date_from: dateFromInput.value ? Date.parse(dateFromInput.value) : undefined,
-    date_to: dateToInput.value ? Date.parse(dateToInput.value) + 24*60*60*1000 - 1 : undefined // end of day
-  };
   filterBtn.onclick = function(e: Event) {
     e.preventDefault();
     paginationState['transactions-table'].page = 1;
@@ -674,12 +688,7 @@ async function renderTransactions(): Promise<void> {
     renderTransactions();
   };
   // Build query string from filters
-  const params = new URLSearchParams();
-  if (filters.asset) params.append('asset', filters.asset);
-  if (filters.type) params.append('type', filters.type);
-  if (filters.wallet_name) params.append('wallet_name', filters.wallet_name);
-  if (filters.date_from) params.append('date_from', filters.date_from.toString());
-  if (filters.date_to) params.append('date_to', filters.date_to.toString());
+  const params = readTransactionFilterParams();
   const url = '/api/transactions' + (params.toString() ? `?${params.toString()}` : '');
 
   await fetchAndRenderPaginated<Transaction>(url, 'transactions-table', row =>
@@ -948,9 +957,13 @@ function showBulkEditModal() {
   showAddEditTransactionModal();
 };
 
-// Download csv
+// Download csv: exports the full result of the currently-applied filters
+// (not just the visible page) by calling the server-side download endpoint
+// with the same query params used by the table fetch.
 (document.getElementById('download-csv-btn') as HTMLButtonElement).onclick = function() {
-  window.location.href = '/transactions.csv';
+  const params = readTransactionFilterParams();
+  const qs = params.toString();
+  window.location.href = '/api/download-transactions-csv' + (qs ? `?${qs}` : '');
 };
 
 (document.getElementById('import-transactions-btn') as HTMLButtonElement).onclick = async function() {

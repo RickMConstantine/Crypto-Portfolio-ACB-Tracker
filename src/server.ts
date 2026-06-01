@@ -1,4 +1,3 @@
-import fs from 'fs'
 import express from 'express';
 import path from 'path';
 import {
@@ -509,13 +508,50 @@ app.get('/api/transactions', async (req, res) => {
   }));
 });
 
-app.get('/api/download-transactions-csv', (req, res) => {
-  const csvPath = path.resolve(__dirname, '../', 'transactions.csv');
-  if (fs.existsSync(csvPath)) {
-    res.download(csvPath, 'transactions.csv');
-  } else {
-    res.status(404).send('CSV file not found');
-  }
+app.get('/api/download-transactions-csv', async (req, res) => {
+  const { asset, type, date_from, date_to, wallet_name } = req.query;
+  // Pull every matching row (no pagination) so the export reflects the full
+  // filtered query, not just the page the user is currently looking at.
+  const { items } = await getTransactions({
+    asset: asset as string | undefined,
+    type: type as string | undefined,
+    date_from: date_from ? Number(date_from) : undefined,
+    date_to: date_to ? Number(date_to) : undefined,
+    wallet_name: wallet_name as string | undefined,
+  });
+
+  // Emit the same column set the import endpoint expects, so an export →
+  // re-import round-trip preserves the data. The id column is intentionally
+  // omitted (auto-assigned on insert).
+  const rows = items.map(t => ({
+    unix_timestamp: new Date(t.unix_timestamp).toISOString(),
+    type: t.type,
+    send_asset_symbol: t.send_asset_symbol ?? '',
+    send_asset_quantity: t.send_asset_quantity ?? '',
+    receive_asset_symbol: t.receive_asset_symbol ?? '',
+    receive_asset_quantity: t.receive_asset_quantity ?? '',
+    fee_asset_symbol: t.fee_asset_symbol ?? '',
+    fee_asset_quantity: t.fee_asset_quantity ?? '',
+    is_income: t.is_income ? 'true' : '',
+    notes: t.notes ?? '',
+    from_wallet_name: t.from_wallet_name ?? '',
+    to_wallet_name: t.to_wallet_name ?? '',
+  }));
+  const csv = Papa.unparse(rows, {
+    columns: [
+      'unix_timestamp', 'type',
+      'send_asset_symbol', 'send_asset_quantity',
+      'receive_asset_symbol', 'receive_asset_quantity',
+      'fee_asset_symbol', 'fee_asset_quantity',
+      'is_income', 'notes',
+      'from_wallet_name', 'to_wallet_name',
+    ],
+  });
+
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="transactions-${stamp}.csv"`);
+  res.send(csv);
 });
 
 // Update
