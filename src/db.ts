@@ -611,26 +611,18 @@ export async function deleteTransaction(id: number): Promise<Transaction[]> {
 //=======================
 // Wallets
 //=======================
-// Create. Idempotent: re-adding an existing wallet is a no-op (returns the row).
+// Create
 export async function addWallet({ name }: Wallet): Promise<Wallet[]> {
   return new Promise<any[]>((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     db.all(
-      'INSERT INTO wallets (name) VALUES (?) ON CONFLICT(name) DO NOTHING RETURNING *',
+      'INSERT INTO wallets (name) VALUES (?) RETURNING *',
       [name],
       (err, rows) => {
         if (err) return reject(err);
-        if (rows.length) {
-          console.log(`Inserted wallet: ${(rows[0] as any).name}`);
-          return resolve(rows);
-        }
-        // Already existed; fetch and return the existing row so callers don't
-        // have to special-case the "no-op upsert" case.
-        db!.all('SELECT * FROM wallets WHERE name = ?', [name], (err, existing) => {
-          if (err) return reject(err);
-          if (!existing.length) return reject(new Error(`Failed to insert or find wallet: ${name}`));
-          resolve(existing);
-        });
+        if (!rows.length) return reject(new Error(`Failed to insert wallet: ${name}`));
+        console.log(`Inserted wallet: ${(rows[0] as any).name}`);
+        resolve(rows);
       }
     );
   });

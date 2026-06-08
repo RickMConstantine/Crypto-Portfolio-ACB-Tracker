@@ -267,11 +267,9 @@ describe('DB functions', () => {
     expect(remaining.length).toBe(0);
   });
 
-  it('should be idempotent when re-adding a wallet with the same name', async () => {
+  it('should reject re-adding a wallet with the same name', async () => {
     await addWallet({ name: 'UniqueWallet' });
-    const second = await addWallet({ name: 'UniqueWallet' });
-    expect(second.length).toBe(1);
-    expect(second[0].name).toBe('UniqueWallet');
+    await expect(addWallet({ name: 'UniqueWallet' })).rejects.toThrow();
     const { items: wallets } = await getWallets({ names: ['UniqueWallet'] });
     expect(wallets.length).toBe(1);
   });
