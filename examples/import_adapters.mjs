@@ -189,7 +189,7 @@ function adapterCoinbase() {
     const qty = num(r['Quantity Transacted']);
     const notes = emptyStr(r.Notes);
 
-    if (type === 'Learning Reward' || type === 'Staking Income') {
+    if (type === 'Learning Reward' || type === 'Staking Income' || type === 'Reward Income') {
       out.push({
         unix_timestamp: isoOf(ts), type: 'Receive',
         receive_asset_symbol: asset, receive_asset_quantity: qty,
@@ -238,7 +238,10 @@ function adapterCryptoCom() {
     if (
       kind === 'crypto_earn_interest_paid' ||
       kind === 'supercharger_reward_to_app_credited' ||
-      kind === 'admin_wallet_credited'
+      kind === 'admin_wallet_credited' ||
+      kind === 'finance.dpos.compound_interest.crypto_wallet' ||
+      kind === 'finance.dpos.non_compound_interest.crypto_wallet' ||
+      kind === 'rewards_platform_deposit_credited'
     ) {
       out.push({
         unix_timestamp: isoOf(ts), type: 'Receive',
@@ -270,7 +273,8 @@ function adapterCryptoCom() {
       kind === 'crypto_earn_program_created' ||
       kind === 'crypto_earn_program_withdrawn' ||
       kind === 'lockup_unlock' ||
-      kind === 'supercharger_deposit'
+      kind === 'supercharger_deposit' ||
+      kind === 'finance.dpos.staking.crypto_wallet'
     ) {
       // Internal product-state transitions — no balance change.
       bumpStat(`skipped_internal:${kind}`);
@@ -320,6 +324,28 @@ function adapterShakepay() {
         to_wallet_name: wallet,
       });
       bumpStat(type === 'Reward' ? 'income' : 'receive');
+    } else if (type === 'Buy') {
+      // Buy uses fiat (Book Cost / Book Cost Currency) → crypto (Asset Credited).
+      // Asset Debited is empty for Buys.
+      out.push({
+        unix_timestamp: isoOf(ts), type: 'Buy',
+        send_asset_symbol: sym(r['Book Cost Currency']),
+        send_asset_quantity: num(r['Book Cost']),
+        receive_asset_symbol: sym(r['Asset Credited']),
+        receive_asset_quantity: num(r['Amount Credited']),
+        notes: emptyStr(r.Description),
+        to_wallet_name: wallet,
+      });
+      bumpStat('buy');
+    } else if (type === 'Send') {
+      out.push({
+        unix_timestamp: isoOf(ts), type: 'Send',
+        send_asset_symbol: sym(r['Asset Debited']),
+        send_asset_quantity: num(r['Amount Debited']),
+        notes: emptyStr(r.Description),
+        from_wallet_name: wallet,
+      });
+      bumpStat('send');
     } else {
       bumpStat(`skipped_type:${type}`);
     }
