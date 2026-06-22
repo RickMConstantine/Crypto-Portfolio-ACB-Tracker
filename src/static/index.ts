@@ -622,6 +622,27 @@ function showAddEditPriceModal(price?: Price) {
   showAddEditPriceModal();
 };
 
+// Build the URLSearchParams that mirror the current Transactions tab filter
+// controls. Used by both the table fetch and the CSV export so both stay in
+// lockstep without funneling state through a shared variable.
+function readTransactionFilterParams(): URLSearchParams {
+  const assetSelect = document.getElementById('transactions-filter-asset') as HTMLSelectElement;
+  const typeSelect = document.getElementById('transactions-filter-type') as HTMLSelectElement;
+  const walletSelect = document.getElementById('transactions-filter-wallet') as HTMLSelectElement;
+  const dateFromInput = document.getElementById('transactions-filter-date-from') as HTMLInputElement;
+  const dateToInput = document.getElementById('transactions-filter-date-to') as HTMLInputElement;
+  const params = new URLSearchParams();
+  if (assetSelect?.value) params.append('asset', assetSelect.value);
+  if (typeSelect?.value) params.append('type', typeSelect.value);
+  if (walletSelect?.value) params.append('wallet_name', walletSelect.value);
+  if (dateFromInput?.value) params.append('date_from', String(Date.parse(dateFromInput.value)));
+  if (dateToInput?.value) {
+    // End-of-day inclusive, matching the table filter behavior.
+    params.append('date_to', String(Date.parse(dateToInput.value) + 24 * 60 * 60 * 1000 - 1));
+  }
+  return params;
+}
+
 //=======================
 // Transactions Page
 //=======================
@@ -637,13 +658,6 @@ async function renderTransactions(): Promise<void> {
   const prevBtn = document.getElementById('transactions-table-prev-page') as HTMLButtonElement;
   const nextBtn = document.getElementById('transactions-table-next-page') as HTMLButtonElement;
   const pageSizeSelect = document.getElementById('transactions-table-page-size') as HTMLSelectElement;
-  const filters = {
-    asset: assetSelect.value,
-    type: typeSelect.value,
-    wallet_id: walletSelect.value ? Number(walletSelect.value) : undefined,
-    date_from: dateFromInput.value ? Date.parse(dateFromInput.value) : undefined,
-    date_to: dateToInput.value ? Date.parse(dateToInput.value) + 24*60*60*1000 - 1 : undefined // end of day
-  };
   filterBtn.onclick = function(e: Event) {
     e.preventDefault();
     paginationState['transactions-table'].page = 1;
@@ -674,17 +688,8 @@ async function renderTransactions(): Promise<void> {
     renderTransactions();
   };
   // Build query string from filters
-  const params = new URLSearchParams();
-  if (filters.asset) params.append('asset', filters.asset);
-  if (filters.type) params.append('type', filters.type);
-  if (filters.wallet_id) params.append('wallet_id', filters.wallet_id.toString());
-  if (filters.date_from) params.append('date_from', filters.date_from.toString());
-  if (filters.date_to) params.append('date_to', filters.date_to.toString());
+  const params = readTransactionFilterParams();
   const url = '/api/transactions' + (params.toString() ? `?${params.toString()}` : '');
-  // Fetch wallets for name lookup
-  const walletsRes = await fetch('/api/wallets');
-  const { items }: { items: Wallet[] } = await walletsRes.json();
-  const walletMap = Object.fromEntries(items.map(w => [w.id, w.name]));
 
   await fetchAndRenderPaginated<Transaction>(url, 'transactions-table', row =>
     `<td><input type="checkbox" class="transaction-select" data-id="${row.id}" data-type="${row.type}"></td>
@@ -692,8 +697,8 @@ async function renderTransactions(): Promise<void> {
       <td>${row.send_asset_symbol ?? ''}</td><td>${row.send_asset_quantity || ''}</td>
       <td>${row.receive_asset_symbol ?? ''}</td><td>${row.receive_asset_quantity || ''}</td>
       <td>${row.fee_asset_symbol ?? ''}</td><td>${row.fee_asset_quantity || ''}</td>
-      <td data-wallet-id="${row.from_wallet_id ?? ''}">${row.from_wallet_id ? (walletMap[row.from_wallet_id] || row.from_wallet_id) : ''}</td>
-      <td data-wallet-id="${row.to_wallet_id ?? ''}">${row.to_wallet_id ? (walletMap[row.to_wallet_id] || row.to_wallet_id) : ''}</td>
+      <td>${row.from_wallet_name ?? ''}</td>
+      <td>${row.to_wallet_name ?? ''}</td>
       <td>${row.is_income ? '✓' : ''}</td><td>${row.notes ?? ''}</td>`
   ).then(() => {
     const rows = document.querySelectorAll<HTMLTableRowElement>('#transactions-table tbody tr');
@@ -711,8 +716,8 @@ async function renderTransactions(): Promise<void> {
         };
       }
       tr.onclick = async function () {
-        const fromWalletId = (tr.children[10] as HTMLTableCellElement).dataset.walletId;
-        const toWalletId = (tr.children[11] as HTMLTableCellElement).dataset.walletId;
+        const fromWalletName = (tr.children[10] as HTMLTableCellElement).textContent || undefined;
+        const toWalletName = (tr.children[11] as HTMLTableCellElement).textContent || undefined;
         let transaction = {
           id: Number(id),
           unix_timestamp: Date.parse(tr.children[2].textContent || ''),
@@ -723,8 +728,8 @@ async function renderTransactions(): Promise<void> {
           receive_asset_quantity: (tr.children[7].textContent !== '') ? Number(tr.children[7].textContent) : undefined,
           fee_asset_symbol: tr.children[8].textContent || '',
           fee_asset_quantity: (tr.children[9].textContent !== '') ? Number(tr.children[9].textContent) : undefined,
-          from_wallet_id: fromWalletId ? Number(fromWalletId) : undefined,
-          to_wallet_id: toWalletId ? Number(toWalletId) : undefined,
+          from_wallet_name: fromWalletName,
+          to_wallet_name: toWalletName,
           is_income: tr.children[12].textContent === '✓',
           notes: tr.children[13].textContent || ''
         } as Transaction;
@@ -870,8 +875,8 @@ function showBulkEditModal() {
     receive_asset_quantity:type !== 'Send',
     fee_asset_symbol:      type !== 'Receive',
     fee_asset_quantity:    type !== 'Receive',
-    from_wallet_id:        dispositionTypes.includes(type) || type === 'Transfer',
-    to_wallet_id:          acquisitionTypes.includes(type) || type === 'Transfer',
+    from_wallet_name:      dispositionTypes.includes(type) || type === 'Transfer',
+    to_wallet_name:        acquisitionTypes.includes(type) || type === 'Transfer',
     is_income:             type === 'Receive',
     notes:                 true
   };
@@ -899,8 +904,7 @@ function showBulkEditModal() {
     errorDiv.textContent = '';
     const fd = new FormData(form);
     const numericFields = new Set([
-      'send_asset_quantity', 'receive_asset_quantity', 'fee_asset_quantity',
-      'from_wallet_id', 'to_wallet_id'
+      'send_asset_quantity', 'receive_asset_quantity', 'fee_asset_quantity'
     ]);
     const patch: Record<string, any> = {};
     // Only include fields whose "apply" checkbox is ticked
@@ -953,9 +957,13 @@ function showBulkEditModal() {
   showAddEditTransactionModal();
 };
 
-// Download csv
+// Download csv: exports the full result of the currently-applied filters
+// (not just the visible page) by calling the server-side download endpoint
+// with the same query params used by the table fetch.
 (document.getElementById('download-csv-btn') as HTMLButtonElement).onclick = function() {
-  window.location.href = '/transactions.csv';
+  const params = readTransactionFilterParams();
+  const qs = params.toString();
+  window.location.href = '/api/download-transactions-csv' + (qs ? `?${qs}` : '');
 };
 
 (document.getElementById('import-transactions-btn') as HTMLButtonElement).onclick = async function() {
@@ -1058,8 +1066,8 @@ function showAddEditTransactionModal(transaction?: Transaction) {
     feeAssetQty.value = transaction.fee_asset_quantity != null ? String(transaction.fee_asset_quantity) : '';
     isIncomeInput.checked = !!transaction.is_income;
     notesInput.value = transaction.notes || '';
-    fromWalletSelect.value = transaction.from_wallet_id ? String(transaction.from_wallet_id) : '';
-    toWalletSelect.value = transaction.to_wallet_id ? String(transaction.to_wallet_id) : '';
+    fromWalletSelect.value = transaction.from_wallet_name || '';
+    toWalletSelect.value = transaction.to_wallet_name || '';
   }
   validateAddEditTransactionForm();
   // Validation
@@ -1109,8 +1117,8 @@ function showAddEditTransactionModal(transaction?: Transaction) {
           fee_asset_quantity: num('fee_asset_quantity'),
           is_income: fd.get('is_income') === 'on',
           notes: str('notes'),
-          from_wallet_id: num('from_wallet_id'),
-          to_wallet_id: num('to_wallet_id')
+          from_wallet_name: str('from_wallet_name'),
+          to_wallet_name: str('to_wallet_name')
         })
       });
       if (!resp.ok) {
@@ -1185,7 +1193,7 @@ async function populateWalletDropdowns(selects: Array<HTMLSelectElement | null>)
     while (select.options.length > 1) select.remove(1);
     wallets.forEach(wallet => {
       const opt = document.createElement('option');
-      opt.value = String(wallet.id);
+      opt.value = wallet.name;
       opt.textContent = wallet.name;
       select.appendChild(opt);
     });
@@ -1210,15 +1218,15 @@ populateAllWalletDropdowns();
 function renderWallets(): void {
   populateAllWalletDropdowns();
   fetchAndRender<Wallet>('/api/wallets', 'wallets-table', row =>
-    `<td>${row.id}</td><td>${row.name}</td><td class="wallet-balances" data-wallet-id="${row.id}">Loading...</td>`
+    `<td>${row.name}</td><td class="wallet-balances" data-wallet-name="${row.name}">Loading...</td>`
   ).then(async () => {
     // Fetch balances for each wallet and populate the dropdown
     const balanceCells = document.querySelectorAll<HTMLTableCellElement>('#wallets-table .wallet-balances');
     for (const cell of Array.from(balanceCells)) {
-      const walletId = cell.dataset.walletId;
-      if (!walletId) continue;
+      const walletName = cell.dataset.walletName;
+      if (!walletName) continue;
       try {
-        const res = await fetch(`/api/wallet/${walletId}/balances`);
+        const res = await fetch(`/api/wallet/${encodeURIComponent(walletName)}/balances`);
         const balances: { symbol: string; balance: number }[] = await res.json();
         if (!balances.length) {
           cell.textContent = 'No assets';
@@ -1246,8 +1254,7 @@ function renderWallets(): void {
     // Add click handlers for editing
     const rows = document.querySelectorAll<HTMLTableRowElement>('#wallets-table tbody tr');
     rows.forEach(tr => {
-      const id = Number(tr.children[0].textContent);
-      const name = tr.children[1].textContent || '';
+      const name = tr.children[0].textContent || '';
       tr.onmouseenter = function () {
         tr.style.background = '#e6f7ff';
         tr.title = 'Click to edit wallet';
@@ -1259,7 +1266,7 @@ function renderWallets(): void {
       tr.onclick = function (e) {
         // Don't trigger edit when clicking on the balances details/summary
         if ((e.target as HTMLElement).closest('details')) return;
-        showAddEditWalletModal({ id, name } as Wallet);
+        showAddEditWalletModal({ name } as Wallet);
       };
     });
   });
@@ -1302,7 +1309,7 @@ function showAddEditWalletModal(wallet?: Wallet) {
     try {
       let resp: Response;
       if (wallet) {
-        resp = await fetch(`/api/wallet/${wallet.id}`, {
+        resp = await fetch(`/api/wallet/${encodeURIComponent(wallet.name)}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1333,7 +1340,7 @@ function showAddEditWalletModal(wallet?: Wallet) {
     if (!confirm('Are you sure you want to delete this wallet? Transactions referencing it will have their wallet association removed.')) return;
     errorDiv.textContent = '';
     try {
-      const resp = await fetch(`/api/wallet/${wallet.id}`, { method: 'DELETE' });
+      const resp = await fetch(`/api/wallet/${encodeURIComponent(wallet.name)}`, { method: 'DELETE' });
       if (!resp.ok) {
         const msg = await resp.text();
         throw new Error(msg || 'Failed to delete wallet');

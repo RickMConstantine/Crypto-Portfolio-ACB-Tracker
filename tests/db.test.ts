@@ -201,7 +201,6 @@ describe('DB functions', () => {
     const newWallet = await addWallet({ name: 'Ledger Nano' });
     expect(newWallet.length).toBe(1);
     expect(newWallet[0].name).toBe('Ledger Nano');
-    expect(newWallet[0].id).toBeDefined();
     const { items: wallets } = await getWallets();
     expect(wallets.some((w: Wallet) => w.name === 'Ledger Nano')).toBeTruthy();
   });
@@ -217,16 +216,10 @@ describe('DB functions', () => {
     expect(total).toBe(1);
     expect(wallets.length).toBe(1);
     expect(wallets[0].name).toBe('Ledger Nano');
-
-    const { items: byId } = await getWallets({ ids: [wallets[0].id] });
-    expect(byId.length).toBe(1);
-    expect(byId[0].name).toBe('Ledger Nano');
   });
 
-  it('should update a wallet', async () => {
-    const { items: wallets } = await getWallets({ names: ['Ledger Nano'] });
-    const id = wallets[0].id;
-    const updated = await updateWallet(id, 'Ledger Nano X');
+  it('should rename a wallet and cascade the new name to transactions', async () => {
+    const updated = await updateWallet('Ledger Nano', 'Ledger Nano X');
     expect(updated.length).toBe(1);
     expect(updated[0].name).toBe('Ledger Nano X');
   });
@@ -247,38 +240,38 @@ describe('DB functions', () => {
       send_asset_quantity: 0.5,
       receive_asset_symbol: btc,
       receive_asset_quantity: 0.5,
-      from_wallet_id: wallet1.id,
-      to_wallet_id: wallet2.id
+      from_wallet_name: wallet1.name,
+      to_wallet_name: wallet2.name
     });
     expect(newTx.length).toBe(1);
     expect(newTx[0].type).toBe(TransactionType.TRANSFER);
-    expect(newTx[0].from_wallet_id).toBe(wallet1.id);
-    expect(newTx[0].to_wallet_id).toBe(wallet2.id);
+    expect(newTx[0].from_wallet_name).toBe(wallet1.name);
+    expect(newTx[0].to_wallet_name).toBe(wallet2.name);
   });
 
-  it('should filter transactions by wallet_id', async () => {
+  it('should filter transactions by wallet_name', async () => {
     const { items: wallets } = await getWallets();
     const wallet1 = wallets[0];
-    const { items: txs } = await getTransactions({ wallet_id: wallet1.id });
+    const { items: txs } = await getTransactions({ wallet_name: wallet1.name });
     expect(txs.length).toBeGreaterThan(0);
     txs.forEach((tx: Transaction) => {
-      expect(tx.from_wallet_id === wallet1.id || tx.to_wallet_id === wallet1.id).toBeTruthy();
+      expect(tx.from_wallet_name === wallet1.name || tx.to_wallet_name === wallet1.name).toBeTruthy();
     });
   });
 
   it('should delete a wallet and clear references from transactions', async () => {
-    const { items: wallets } = await getWallets({ names: ['MetaMask'] });
-    const id = wallets[0].id;
-    const result = await deleteWallet(id);
+    const result = await deleteWallet('MetaMask');
     expect(result.length).toBe(1);
     expect(result[0].name).toBe('MetaMask');
-    const { items: remaining } = await getWallets({ ids: [id] });
+    const { items: remaining } = await getWallets({ names: ['MetaMask'] });
     expect(remaining.length).toBe(0);
   });
 
-  it('should reject duplicate wallet names', async () => {
+  it('should reject re-adding a wallet with the same name', async () => {
     await addWallet({ name: 'UniqueWallet' });
     await expect(addWallet({ name: 'UniqueWallet' })).rejects.toThrow();
+    const { items: wallets } = await getWallets({ names: ['UniqueWallet'] });
+    expect(wallets.length).toBe(1);
   });
 
   it('should paginate prices with limit/offset returning an envelope with total', async () => {

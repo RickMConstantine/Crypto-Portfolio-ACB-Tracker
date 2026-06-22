@@ -28,13 +28,13 @@ This application is a full-stack web app for tracking your cryptocurrency asset 
 
 ## Development Note
 
-This app was developed with the assistance of [GitHub Copilot](https://github.com/features/copilot).
+This app was developed with the assistance of [GitHub Copilot](https://github.com/features/copilot) and [Kiro](https://kiro.dev).
 
 ## Installation
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or newer recommended)
+- [Node.js](https://nodejs.org/) (v20 or newer recommended; `npm start` uses `--env-file-if-exists` which requires Node 20+)
 - [npm](https://www.npmjs.com/) (comes with Node.js)
 - [Git](https://git-scm.com/) (optional, for cloning)
 
@@ -119,11 +119,11 @@ This app was developed with the assistance of [GitHub Copilot](https://github.co
 - `GET /api/transaction-types` — List all transaction types
 
 ### Wallets
-- `GET /api/wallets` — List all wallets (supports filtering by `ids`, `names` as query params)
+- `GET /api/wallets` — List all wallets (supports filtering by `names` as a query param)
 - `POST /api/wallet` — Add wallet (requires `name`)
-- `PUT /api/wallet/:id` — Update wallet
-- `DELETE /api/wallet/:id` — Delete wallet (clears wallet references from transactions)
-- `GET /api/wallet/:id/balances` — Get per-asset balances for a wallet (calculated from transactions)
+- `PUT /api/wallet/:name` — Rename wallet (cascades the new name to referencing transactions)
+- `DELETE /api/wallet/:name` — Delete wallet (clears wallet references from transactions)
+- `GET /api/wallet/:name/balances` — Get per-asset balances for a wallet (calculated from transactions)
 
 ### Tax + ACB
 - `GET /api/acb` — Get proceeds, costs, outlays, ACB, and superficial loss for all assets (yearly and total breakdown)
@@ -140,6 +140,10 @@ The `examples` directory contains sample SQLite databases for testing and demons
 - **superficial_loss_example_2.sqlite** — Based on Example #2 from [What is the Superficial Loss Rule?](https://www.adjustedcostbase.ca/blog/what-is-the-superficial-loss-rule/).
 
 You can use these files to experiment with the app and verify ACB and superficial loss calculations.
+
+It also contains helper scripts for converting third-party CSV exports into the internal transactions format and POSTing them to `/api/import-transactions`:
+
+- **import_adapters.mjs** — Multi-format CSV import adapter. Run from the repo root with `node examples/import_adapters.mjs --adapter <name> --input <file> [options]`. Supported adapters cover Koinly, Coinbase, Crypto.com, Shakepay, Uphold, MetaMask BSC (Etherscan-style), Trust BCH, Etherscan token transfers, and pre-formatted internal CSVs from Yield.app. Pass `--help` for the full option list.
 
 ## Development
 

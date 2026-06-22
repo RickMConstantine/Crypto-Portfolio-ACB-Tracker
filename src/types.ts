@@ -117,12 +117,11 @@ export interface Transaction {
     fee_asset_quantity?: number;
     is_income?: boolean;
     notes?: string;
-    from_wallet_id?: number;
-    to_wallet_id?: number;
+    from_wallet_name?: string;
+    to_wallet_name?: string;
 }
 
 export interface Wallet {
-    id: number;
     name: string;
 }
 
