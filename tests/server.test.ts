@@ -50,6 +50,15 @@ jest.mock('../src/db', () => ({
 const app = require('../src/server').default || require('../src/server');
 
 describe('Express API endpoints (mocked db)', () => {
+  // Reset mock call history and the getTransactions implementation before each
+  // test so a leftover mockResolvedValueOnce (used by several tests) can never
+  // leak into a later test and make outcomes depend on execution order.
+  beforeEach(() => {
+    jest.clearAllMocks();
+    GET_TRANSACTIONS_MOCK.mockReset();
+    GET_TRANSACTIONS_MOCK.mockResolvedValue({ items: [TRANSACTIONS_ROW], total: 1 });
+  });
+
   it('GET /api/ping', async () => {
     const res = await request(app).get('/api/ping');
     expect(res.status).toBe(200);

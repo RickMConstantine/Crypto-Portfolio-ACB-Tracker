@@ -838,22 +838,23 @@ app.get('/api/transaction-types', (req, res) => {
   res.json(Object.values(TransactionType));
 });
 
-// Initialize DB and start server
-initDb(DB_PATH).then(
-  (db) => {
-    // TODO - better way to identify test execution?
-    if (!db) {
-      console.log('DB not initialized - are you testing?');
-      return;
+// Initialize the DB and start the server only when this module is run
+// directly (e.g. `node dist/server.js`). When the module is imported by tests,
+// `require.main` is the test runner, so we skip the bootstrap entirely. This
+// keeps importing the app side-effect free: no DB connection, no port binding,
+// and no floating promise left running during tests.
+if (require.main === module) {
+  initDb(DB_PATH).then(
+    () => {
+      app.listen(PORT, () => {
+        console.log(`Server running at http://localhost:${PORT}`);
+      });
+    },
+    (err) => {
+      console.log(`Failed to initialize DB -> ${err.message}`);
     }
-    app.listen(PORT, () => {
-      console.log(`Server running at http://localhost:${PORT}`);
-    });
-  },
-  (err) => {
-    console.log(`Failed to initialize DB -> ${err.message}`);
-  }
-);
+  );
+}
 
 // For testing purposes, export the app
 export default app;
