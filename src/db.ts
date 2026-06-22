@@ -488,6 +488,7 @@ export async function getTransactions(filters?: {
   date_from?: number;
   date_to?: number;
   wallet_name?: string;
+  note?: string;
   limit?: number;
   offset?: number;
 }): Promise<Paginated<Transaction>> {
@@ -536,6 +537,11 @@ export async function getTransactions(filters?: {
       if (filters.wallet_name) {
         sql += ' AND (t.from_wallet_name = ? OR t.to_wallet_name = ?)';
         params.push(filters.wallet_name, filters.wallet_name);
+      }
+      if (filters.note) {
+        // Case-insensitive substring match on the notes field.
+        sql += ' AND t.notes LIKE ?';
+        params.push(`%${filters.note}%`);
       }
     }
     sql += ' ORDER BY t.unix_timestamp ASC';

@@ -494,20 +494,21 @@ app.post('/api/import-transactions', express.text({ type: 'text/csv', limit: '10
 
 // Retrieve
 app.get('/api/transactions', async (req, res) => {
-  const { asset, type, date_from, date_to, wallet_name, limit, offset } = req.query;
+  const { asset, type, date_from, date_to, wallet_name, note, limit, offset } = req.query;
   res.json(await getTransactions({
     asset: asset as string | undefined,
     type: type as string | undefined,
     date_from: date_from ? Number(date_from) : undefined,
     date_to: date_to ? Number(date_to) : undefined,
     wallet_name: wallet_name as string | undefined,
+    note: note as string | undefined,
     limit: limit !== undefined ? Number(limit) : undefined,
     offset: offset !== undefined ? Number(offset) : undefined
   }));
 });
 
 app.get('/api/download-transactions-csv', async (req, res) => {
-  const { asset, type, date_from, date_to, wallet_name } = req.query;
+  const { asset, type, date_from, date_to, wallet_name, note } = req.query;
   // Pull every matching row (no pagination) so the export reflects the full
   // filtered query, not just the page the user is currently looking at.
   const { items } = await getTransactions({
@@ -516,6 +517,7 @@ app.get('/api/download-transactions-csv', async (req, res) => {
     date_from: date_from ? Number(date_from) : undefined,
     date_to: date_to ? Number(date_to) : undefined,
     wallet_name: wallet_name as string | undefined,
+    note: note as string | undefined,
   });
 
   // Emit the same column set the import endpoint expects, so an export →

@@ -364,6 +364,7 @@
   <div class="tab-content" id="transactions-content" style="display:none;">
     <h2>Transactions</h2>
     <button id="open-add-import-modal-btn" style="margin-bottom:1em;">Add/Import Transaction</button>
+    <button id="download-csv-btn" type="button" style="margin-bottom:1em;">Download CSV (Filtered)</button>
     <div id="transactions-filters" style="margin-bottom:1em;">
       <label>Asset:
         <select id="transactions-filter-asset">
@@ -382,6 +383,9 @@
           <option value="">All</option>
           <!-- Populated in index.js -->
         </select>
+      </label>
+      <label>Note:
+        <input type="text" id="transactions-filter-note" placeholder="Search notes">
       </label>
       <label>Date From:
         <input type="date" id="transactions-filter-date-from">
@@ -562,7 +566,6 @@
           <input type="file" id="import-transactions-file" accept=".csv">
         </label>
         <button id="import-transactions-btn">Upload</button>
-        <button id="download-csv-btn" type="button">Download CSV (Filtered)</button>
         <span id="import-transactions-status" style="margin-left:1em;color:#d9534f;"></span>
       </div>
     </div>
