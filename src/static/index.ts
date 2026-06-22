@@ -976,6 +976,17 @@ function showBulkEditModal() {
   window.location.href = '/api/download-transactions-csv' + (qs ? `?${qs}` : '');
 };
 
+// Download the bundled example CSV so users have a template showing the
+// expected import column format.
+(document.getElementById('download-example-csv-btn') as HTMLButtonElement).onclick = function() {
+  const a = document.createElement('a');
+  a.href = '/transactions.csv';
+  a.download = 'example-transactions.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
+
 (document.getElementById('import-transactions-btn') as HTMLButtonElement).onclick = async function() {
   const fileInput = document.getElementById('import-transactions-file') as HTMLInputElement;
   const status = document.getElementById('import-transactions-status') as HTMLElement;
