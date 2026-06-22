@@ -29,47 +29,84 @@ function getPrice(symbol: string, priceCache: Record<string, Price>): number {
   return priceCache[symbol].price;
 }
 
+// Net units of `asset_symbol` held as of (and including) the given timestamp,
+// replaying acquisitions (Buy/Receive/Trade receive), dispositions
+// (Sell/Send/Trade send), and fees paid in the asset. Transfers of the same
+// asset net to zero. Used to test CRA's "still owns" condition below.
+function unitsHeldAt(txs: Transaction[], asof: number, asset_symbol: string): Decimal {
+  let units = new Decimal(0);
+  for (const t of txs) {
+    if (t.unix_timestamp > asof) break; // txs are sorted ascending
+    if (t.receive_asset_symbol === asset_symbol && t.receive_asset_quantity) {
+      units = units.plus(t.receive_asset_quantity);
+    }
+    if (t.send_asset_symbol === asset_symbol && t.send_asset_quantity) {
+      units = units.minus(t.send_asset_quantity);
+    }
+    if (t.fee_asset_symbol === asset_symbol && t.fee_asset_quantity) {
+      units = units.minus(t.fee_asset_quantity);
+    }
+  }
+  return units;
+}
+
 // Superficial Loss (as defined by CRA)
 // https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/personal-income/line-12700-capital-gains/capital-losses-deductions.html#toc7
 // A superficial loss can occur when you dispose of capital property for a loss and both of the following conditions are met:
 // You, or a person affiliated with you, buys, or has a right to buy, the same or identical property (called "substituted property") during the period starting 30 calendar days before the sale and ending 30 calendar days after the sale
 // You, or a person affiliated with you, still owns, or has a right to buy, the substituted property 30 calendar days after the sale
 //
-// This function will identify if a property/asset has been purchased in the 30 calenders before/after the tx.
 // *** Assuming that:
 // - this tx has (already) been identified as a capital loss
 // - txs are sorted by unix_timestamp ascending
 export function isSuperficialLoss(tx: Transaction, txs: Transaction[], i: number, asset_symbol: string): boolean {
   const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-  // Find repurchase within 30 days after disposition
+  const windowEnd = tx.unix_timestamp + THIRTY_DAYS;
+  const windowStart = tx.unix_timestamp - THIRTY_DAYS;
+
+  // Condition 1: identical property (re)purchased in the [-30d, +30d] window.
+  let repurchasedInWindow = false;
+  // Repurchase within 30 days after disposition.
   for (let j = i + 1; j < txs.length; j++) {
     const nextTx = txs[j];
-    if (nextTx.unix_timestamp > tx.unix_timestamp + THIRTY_DAYS) break;
+    if (nextTx.unix_timestamp > windowEnd) break;
     if (
       [TransactionType.BUY, TransactionType.TRADE].includes(nextTx.type) &&
       nextTx.receive_asset_symbol === asset_symbol &&
       nextTx.receive_asset_quantity &&
       nextTx.unix_timestamp > tx.unix_timestamp &&
-      nextTx.unix_timestamp <= tx.unix_timestamp + THIRTY_DAYS
+      nextTx.unix_timestamp <= windowEnd
     ) {
-      return true;
+      repurchasedInWindow = true;
+      break;
     }
   }
-  // Also check for repurchase within 30 days before disposition
-  for (let j = i - 1; j >= 0; j--) {
-    const prevTx = txs[j];
-    if (prevTx.unix_timestamp < tx.unix_timestamp - THIRTY_DAYS) break;
-    if (
-      [TransactionType.BUY, TransactionType.TRADE].includes(prevTx.type) &&
-      prevTx.receive_asset_symbol === asset_symbol &&
-      prevTx.receive_asset_quantity &&
-      prevTx.unix_timestamp < tx.unix_timestamp &&
-      prevTx.unix_timestamp >= tx.unix_timestamp - THIRTY_DAYS
-    ) {
-      return true;
+  // Repurchase within 30 days before disposition.
+  if (!repurchasedInWindow) {
+    for (let j = i - 1; j >= 0; j--) {
+      const prevTx = txs[j];
+      if (prevTx.unix_timestamp < windowStart) break;
+      if (
+        [TransactionType.BUY, TransactionType.TRADE].includes(prevTx.type) &&
+        prevTx.receive_asset_symbol === asset_symbol &&
+        prevTx.receive_asset_quantity &&
+        prevTx.unix_timestamp < tx.unix_timestamp &&
+        prevTx.unix_timestamp >= windowStart
+      ) {
+        repurchasedInWindow = true;
+        break;
+      }
     }
   }
-  return false;
+  if (!repurchasedInWindow) return false;
+
+  // Condition 2: the substituted property is still held at the end of the
+  // 30-day window after the disposition. If the position has been fully
+  // disposed of (and not re-acquired) by then, the loss is NOT superficial.
+  // A small epsilon absorbs import dust so negligible residue isn't treated
+  // as a holding.
+  const DUST = new Decimal(1e-9);
+  return unitsHeldAt(txs, windowEnd, asset_symbol).greaterThan(DUST);
 }
 
 /**
