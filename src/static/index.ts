@@ -636,12 +636,14 @@ function readTransactionFilterParams(): URLSearchParams {
   const assetSelect = document.getElementById('transactions-filter-asset') as HTMLSelectElement;
   const typeSelect = document.getElementById('transactions-filter-type') as HTMLSelectElement;
   const walletSelect = document.getElementById('transactions-filter-wallet') as HTMLSelectElement;
+  const noteInput = document.getElementById('transactions-filter-note') as HTMLInputElement;
   const dateFromInput = document.getElementById('transactions-filter-date-from') as HTMLInputElement;
   const dateToInput = document.getElementById('transactions-filter-date-to') as HTMLInputElement;
   const params = new URLSearchParams();
   if (assetSelect?.value) params.append('asset', assetSelect.value);
   if (typeSelect?.value) params.append('type', typeSelect.value);
   if (walletSelect?.value) params.append('wallet_name', walletSelect.value);
+  if (noteInput?.value.trim()) params.append('note', noteInput.value.trim());
   if (dateFromInput?.value) params.append('date_from', String(Date.parse(dateFromInput.value)));
   if (dateToInput?.value) {
     // End-of-day inclusive, matching the table filter behavior.
@@ -658,6 +660,7 @@ async function renderTransactions(): Promise<void> {
   const assetSelect = document.getElementById('transactions-filter-asset') as HTMLSelectElement;
   const typeSelect = document.getElementById('transactions-filter-type') as HTMLSelectElement;
   const walletSelect = document.getElementById('transactions-filter-wallet') as HTMLSelectElement;
+  const noteInput = document.getElementById('transactions-filter-note') as HTMLInputElement;
   const dateFromInput = document.getElementById('transactions-filter-date-from') as HTMLInputElement;
   const dateToInput = document.getElementById('transactions-filter-date-to') as HTMLInputElement;
   const filterBtn = document.getElementById('transactions-filter-btn') as HTMLButtonElement;
@@ -675,6 +678,7 @@ async function renderTransactions(): Promise<void> {
     assetSelect.value = '';
     typeSelect.value = '';
     walletSelect.value = '';
+    noteInput.value = '';
     dateFromInput.value = '';
     dateToInput.value = '';
     paginationState['transactions-table'].page = 1;
