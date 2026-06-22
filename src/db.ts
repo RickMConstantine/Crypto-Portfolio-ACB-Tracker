@@ -1,7 +1,7 @@
 import { Database } from 'sqlite3';
 import { mkdir, unlink } from 'fs';
 import { dirname } from 'path';
-import { AssetType, Asset, Price, Transaction, TransactionType, Wallet, InsertionType } from './types';
+import { AssetType, Asset, Price, Transaction, TransactionType, Wallet, InsertionType, Paginated } from './types';
 
 //=======================
 // Database Init
@@ -161,7 +161,7 @@ export async function getAssets(filters?: {
   search?: string,
   limit?: number,
   offset?: number,
-}): Promise<{ items: Asset[], total: number }> {
+}): Promise<Paginated<Asset>> {
   return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     // COUNT(*) OVER() tacks the total (pre-LIMIT) onto each row so pagination is a
@@ -313,7 +313,7 @@ export async function getPrices(filters?: {
   date_to?: number;
   limit?: number;
   offset?: number;
-}): Promise<{ items: Price[], total: number }> {
+}): Promise<Paginated<Price>> {
   return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     // COUNT(*) OVER() tacks the total (pre-LIMIT) onto each row so pagination is a
@@ -490,7 +490,7 @@ export async function getTransactions(filters?: {
   wallet_name?: string;
   limit?: number;
   offset?: number;
-}): Promise<{ items: Transaction[], total: number }> {
+}): Promise<Paginated<Transaction>> {
   return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     // COUNT(*) OVER() tacks the total (pre-LIMIT) onto each row so pagination is a
@@ -629,7 +629,7 @@ export async function addWallet({ name }: Wallet): Promise<Wallet[]> {
 }
 
 // Retrieve
-export async function getWallets(filters?: { names?: string[] }): Promise<{ items: Wallet[]; total: number }> {
+export async function getWallets(filters?: { names?: string[] }): Promise<Paginated<Wallet>> {
   return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('DB not initialized'));
     let sql = 'SELECT *, COUNT(*) OVER() AS total_count FROM wallets WHERE 1=1';

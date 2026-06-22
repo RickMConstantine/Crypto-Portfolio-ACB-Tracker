@@ -1,4 +1,4 @@
-import { Asset, Price, Transaction, Wallet } from '../types';
+import { Asset, Price, Transaction, Wallet, Paginated } from '../types';
 
 //=======================
 // Query Document
@@ -50,7 +50,7 @@ async function fetchAndRender<T>(
   requestInit: RequestInit = {}
 ): Promise<void> {
   const res = await fetch(url, requestInit);
-  const { items }: { items: T[] } = await res.json();
+  const { items }: Paginated<T> = await res.json();
   const tbody = document.querySelector(`#${tableId} tbody`) as HTMLTableSectionElement;
   tbody.innerHTML = '';
   // Populate table rows
@@ -80,7 +80,7 @@ async function fetchAndRenderPaginated<T>(
   const offset = (state.page - 1) * state.pageSize;
   const url = baseUrl + (baseUrl.includes('?') ? '&' : '?') + `limit=${state.pageSize}&offset=${offset}`;
   const res = await fetch(url, requestInit);
-  const { items, total }: { items: T[], total: number } = await res.json();
+  const { items, total }: Paginated<T> = await res.json();
   const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
   // Clamp current page in case data shrank and re-fetch once
   if (state.page > totalPages) {
@@ -111,7 +111,6 @@ function renderAssets(): void {
   renderFiatCurrency();
   populateAllAssetDropdowns();
 }
-renderAssets();
 
 function renderFiatCurrency(): void {
   fetchAndRender<Asset>('/api/assets?asset_types=fiat', 'fiat-currency-table', row =>
@@ -207,7 +206,6 @@ function renderBlockchainAssets(): Promise<void> {
       };
       tr.onclick = function () {
         const asset_type = is_nft ? 'nft' : 'blockchain'
-        console.log(asset_type);
         showAddEditAssetModal({ name, symbol, asset_type, launch_date, logo_url } as Asset);
       };
     });
@@ -358,7 +356,7 @@ refreshAllPricesBtn?.addEventListener('click', async function() {
   try {
     // Fetch all blockchain assets. Use a large limit to avoid paginating.
     const res = await fetch('/api/assets?asset_types=blockchain&limit=10000');
-    const { items: assets }: { items: Asset[] } = await res.json();
+    const { items: assets }: Paginated<Asset> = await res.json();
     const total = assets.length;
     const failures: Array<{ symbol: string; error: string }> = [];
     for (let i = 0; i < total; i++) {
@@ -396,25 +394,35 @@ function setDisable(selects: Array<HTMLInputElement | HTMLButtonElement>, disabl
   });
 }
 
-async function populateAssetDropdowns(selects: Array<HTMLSelectElement | null>, assetType?: string) {
-  const res = await fetch(`/api/assets${assetType ? `?asset_types=${assetType}` : ''}`);
-  const { items: assets }: { items: any[] } = await res.json();
+// Generic dropdown populator. Preserves the first (default) <option> defined in
+// HTML and replaces the rest with `items`. Keeps the user's current selection
+// across re-renders so switching tabs doesn't blow away filter state.
+function populateDropdowns<T>(
+  selects: Array<HTMLSelectElement | null>,
+  items: T[],
+  getValue: (item: T) => string,
+  getLabel: (item: T) => string
+) {
   selects.forEach(select => {
     if (!select) return;
-    // Preserve the current selection so repopulating doesn't reset it.
     const previous = select.value;
-    // Preserve the first (default) option and replace the rest.
     while (select.options.length > 1) select.remove(1);
-    assets.forEach(asset => {
+    items.forEach(item => {
       const opt = document.createElement('option');
-      opt.value = asset.symbol;
-      opt.textContent = `${asset.name} (${asset.symbol})`;
+      opt.value = getValue(item);
+      opt.textContent = getLabel(item);
       select.appendChild(opt);
     });
     if (previous && Array.from(select.options).some(o => o.value === previous)) {
       select.value = previous;
     }
   });
+}
+
+async function populateAssetDropdowns(selects: Array<HTMLSelectElement | null>, assetType?: string) {
+  const res = await fetch(`/api/assets${assetType ? `?asset_types=${assetType}` : ''}`);
+  const { items: assets }: Paginated<Asset> = await res.json();
+  populateDropdowns(selects, assets, a => a.symbol, a => `${a.name} (${a.symbol})`);
 }
 
 function populateAllAssetDropdowns() {
@@ -516,7 +524,6 @@ function renderPrices(): void {
     });
   });
 }
-renderPrices();
 
 // Add/Edit Price Modal logic
 function showAddEditPriceModal(price?: Price) {
@@ -747,7 +754,6 @@ async function renderTransactions(): Promise<void> {
     updateTransactionSelectionBar();
   });
 }
-renderTransactions();
 
 //=======================
 // Transactions: Selection + Bulk Edit
@@ -998,8 +1004,38 @@ function showBulkEditModal() {
 };
 
 // Add/Edit Transaction Modal
+//
+// Wires validation listeners to the transaction modal's form controls. Called
+// once at page init to avoid accumulating duplicate listeners each time the
+// modal opens (previously re-bound inside showAddEditTransactionModal).
+function initTransactionModalListeners() {
+  const typeSelect = document.getElementById('edit-type-select') as HTMLSelectElement;
+  const sendSelect = document.getElementById('edit-send-asset-select') as HTMLSelectElement;
+  const sendQty = document.getElementById('edit-send-asset-quantity') as HTMLInputElement;
+  const receiveSelect = document.getElementById('edit-receive-asset-select') as HTMLSelectElement;
+  const receiveQty = document.getElementById('edit-receive-asset-quantity') as HTMLInputElement;
+  const feeAssetSelect = document.getElementById('edit-fee-asset-select') as HTMLSelectElement;
+  const feeAssetQty = document.getElementById('edit-fee-asset-quantity') as HTMLInputElement;
+  const fromWalletSelect = document.getElementById('edit-from-wallet-select') as HTMLSelectElement;
+  const toWalletSelect = document.getElementById('edit-to-wallet-select') as HTMLSelectElement;
+  const isIncomeInput = document.getElementById('edit-is-income') as HTMLInputElement;
+  const form = document.getElementById('edit-transaction-form') as HTMLFormElement;
+  const saveBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+  const errorDiv = document.getElementById('edit-transaction-error') as HTMLElement;
+
+  const validate = () => validateTransactionFields(
+    typeSelect, sendSelect, sendQty, receiveSelect, receiveQty,
+    feeAssetSelect, feeAssetQty, fromWalletSelect, toWalletSelect,
+    isIncomeInput, saveBtn, errorDiv
+  );
+
+  [typeSelect, sendSelect, receiveSelect, feeAssetSelect, fromWalletSelect, toWalletSelect, isIncomeInput]
+    .forEach(el => el.addEventListener('change', validate));
+  [sendQty, receiveQty, feeAssetQty]
+    .forEach(el => el.addEventListener('input', validate));
+}
+
 function showAddEditTransactionModal(transaction?: Transaction) {
-  console.log(transaction)
   // Modal Elements
   const modal = document.getElementById('edit-transaction-modal') as HTMLElement;
   const importContainer = document.getElementById('import-transactions-container') as HTMLElement;
@@ -1070,13 +1106,6 @@ function showAddEditTransactionModal(transaction?: Transaction) {
     toWalletSelect.value = transaction.to_wallet_name || '';
   }
   validateAddEditTransactionForm();
-  // Validation
-  [typeSelect, sendSelect, receiveSelect, feeAssetSelect, fromWalletSelect, toWalletSelect, isIncomeInput].forEach(el => {
-    el.addEventListener('change', validateAddEditTransactionForm);
-  });
-  [sendQty, receiveQty, feeAssetQty].forEach(el => {
-    el.addEventListener('input', validateAddEditTransactionForm);
-  });
   form.onsubmit = async function(e: Event) {
     e.preventDefault();
     const fd = new FormData(form);
@@ -1156,21 +1185,7 @@ function showAddEditTransactionModal(transaction?: Transaction) {
 
 async function populateTransactionTypes(selects: Array<HTMLSelectElement>) {
   const types: string[] = await fetch('/api/transaction-types').then(r => r.json());
-  selects.forEach(select => {
-    // Preserve the current selection so repopulating doesn't reset it.
-    const previous = select.value;
-    // Preserve the first (default) option and replace the rest.
-    while (select.options.length > 1) select.remove(1);
-    types.forEach(type => {
-      const opt = document.createElement('option');
-      opt.value = type;
-      opt.textContent = type;
-      select.appendChild(opt);
-    });
-    if (previous && Array.from(select.options).some(o => o.value === previous)) {
-      select.value = previous;
-    }
-  });
+  populateDropdowns(selects, types, t => t, t => t);
 }
 
 function populateAllTransactionTypeDropdowns() {
@@ -1179,28 +1194,12 @@ function populateAllTransactionTypeDropdowns() {
     document.getElementById('edit-type-select') as HTMLSelectElement
   ]);
 }
-populateAllTransactionTypeDropdowns();
 
 // Wallet dropdown helper
 async function populateWalletDropdowns(selects: Array<HTMLSelectElement | null>) {
   const res = await fetch('/api/wallets');
-  const { items: wallets }: { items: Wallet[] } = await res.json();
-  selects.forEach(select => {
-    if (!select) return;
-    // Preserve the current selection so repopulating doesn't reset it.
-    const previous = select.value;
-    // Preserve the first (default) option and replace the rest.
-    while (select.options.length > 1) select.remove(1);
-    wallets.forEach(wallet => {
-      const opt = document.createElement('option');
-      opt.value = wallet.name;
-      opt.textContent = wallet.name;
-      select.appendChild(opt);
-    });
-    if (previous && Array.from(select.options).some(o => o.value === previous)) {
-      select.value = previous;
-    }
-  });
+  const { items: wallets }: Paginated<Wallet> = await res.json();
+  populateDropdowns(selects, wallets, w => w.name, w => w.name);
 }
 
 function populateAllWalletDropdowns() {
@@ -1210,7 +1209,6 @@ function populateAllWalletDropdowns() {
     document.getElementById('transactions-filter-wallet') as HTMLSelectElement
   ]);
 }
-populateAllWalletDropdowns();
 
 //=======================
 // Wallets Page
@@ -1271,7 +1269,6 @@ function renderWallets(): void {
     });
   });
 }
-renderWallets();
 
 // Add Wallet button
 (document.getElementById('open-edit-wallet-modal-btn') as HTMLButtonElement).onclick = function() {
@@ -1572,10 +1569,28 @@ async function renderTaxPage(): Promise<void> {
     yearlyTbody.innerHTML = '<tr><td colspan="7">Error loading yearly aggregates</td></tr>';
   }
 }
-renderTaxPage();
 
 // Helpers
 function getDateTimeString(unix_timestamp: number, localize: boolean): string {
   const tzoffset = localize ? (new Date()).getTimezoneOffset() * 60000 : 0; //offset in milliseconds
   return new Date(unix_timestamp - tzoffset).toISOString().slice(0,19);
 }
+
+//=======================
+// Init
+//=======================
+// Centralized page initialization. Each tab's first render plus the shared
+// dropdown populators happen here. Keeps the boot sequence visible in one
+// place instead of scattered `renderX()` / `populateAll*()` calls at the
+// bottom of each section.
+function initPage(): void {
+  populateAllTransactionTypeDropdowns();
+  populateAllWalletDropdowns();
+  initTransactionModalListeners();
+  renderAssets();
+  renderPrices();
+  renderTransactions();
+  renderWallets();
+  renderTaxPage();
+}
+initPage();
